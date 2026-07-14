@@ -1,0 +1,53 @@
+{
+  "name": "chain-functions-behavior",
+  "version": "0.1.0",
+  "description": "Chain functions behaviour",
+  "license": "ISC",
+  "author": "Sergey Khalilov",
+  "keywords": [
+    "behavior",
+    "workflow",
+    "action-runner",
+    "rules-engine",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khalilov/chain-functions-behavior.git"
+  },
+  "bugs": {
+    "url": "https://github.com/khalilov/chain-functions-behavior/issues"
+  },
+  "homepage": "https://github.com/khalilov/chain-functions-behavior#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "files": [],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "prettier": "^3.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "module": "./dist/index.js",
+  "sideEffects": false,
+  "dependencies": {
+    "nanoid": "^5.1.16",
+    "objwalk": "^0.2.0"
+  }
+}
