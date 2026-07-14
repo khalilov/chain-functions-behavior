@@ -32,8 +32,25 @@
   },
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
-  "files": [],
+  "module": "./dist/index.js",
+  "files": [
+    "dist",
+    "examples/*.ts",
+    "examples/todo-app/README.md",
+    "examples/todo-app/build.ts",
+    "examples/todo-app/bun.lockb",
+    "examples/todo-app/package.json",
+    "examples/todo-app/server.ts",
+    "examples/todo-app/src",
+    "!dist/**/*.js.map",
+    "!dist/**/*.d.ts.map"
+  ],
+  "directories": {
+    "example": "examples",
+    "test": "test"
+  },
   "scripts": {
+    "test": "vitest run",
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "pack:check": "npm pack --dry-run"
   },
@@ -44,7 +61,6 @@
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
-  "module": "./dist/index.js",
   "sideEffects": false,
   "dependencies": {
     "nanoid": "^5.1.16",

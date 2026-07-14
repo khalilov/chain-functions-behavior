@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'vitest'
+import { createBehaviorRunner } from '~/index'
+import { createActionsRegistry } from '~/registry/actions'
+import { createConditionsRegistry } from '~/registry/conditions'
+import { type BehaviorConfig } from '~/types'
+
+type Ctx = {
+  value?: number
+}
+
+describe('registry', () => {
+  it('creates actions registry with every built-in action', () => {
+    const registry = createActionsRegistry<Ctx, string>()
+
+    assert.deepEqual([...registry.keys()].sort(), [
+      'core.delay',
+      'core.emit',
+      'core.fail',
+      'core.noop',
+      'core.parallel',
+      'core.patch',
+      'core.selector',
+      'core.sequence',
+      'core.set',
+      'core.setData',
+      'core.stop',
+    ])
+  })
+
+  it('creates conditions registry with every built-in condition', () => {
+    const registry = createConditionsRegistry<Ctx>()
+
+    assert.deepEqual([...registry.keys()].sort(), [
+      'changed',
+      'cooldownReady',
+      'empty',
+      'eq',
+      'exists',
+      'falsy',
+      'gt',
+      'gte',
+      'includes',
+      'lt',
+      'lte',
+      'missing',
+      'neq',
+      'notEmpty',
+      'truthy',
+    ])
+  })
+
+  it('allows a runner to override a built-in action without affecting another runner', async () => {
+    const first = createBehaviorRunner<Ctx, string>()
+    const second = createBehaviorRunner<Ctx, string>()
+
+    first.registerAction('core.patch', () => ({ patch: 'override' }))
+    first.loadConfig({ strategies: { root: { fn: 'core.patch', props: { patch: 'builtin' } } } })
+    second.loadConfig({ strategies: { root: { fn: 'core.patch', props: { patch: 'builtin' } } } })
+
+    assert.deepEqual((await first.run('root', {})).patches, ['override'])
+    assert.deepEqual((await second.run('root', {})).patches, ['builtin'])
+  })
+
+  it('allows a runner to override a built-in condition without affecting another runner', async () => {
+    const first = createBehaviorRunner<Ctx, string>()
+    const second = createBehaviorRunner<Ctx, string>()
+    const config: BehaviorConfig = {
+      strategies: {
+        root: { fn: 'core.patch', props: { patch: 'matched' }, when: ['eq', 1, 2] },
+      },
+    }
+
+    first.registerCondition('eq', () => true)
+    first.loadConfig(config)
+    second.loadConfig(config)
+
+    assert.deepEqual((await first.run('root', {})).patches, ['matched'])
+    assert.deepEqual((await second.run('root', {})).patches, [])
+  })
+
+  it('registers actions and conditions in batches before validation', () => {
+    const runner = createBehaviorRunner<Ctx>()
+
+    runner.registerActions({
+      custom: () => undefined,
+    })
+    runner.registerConditions({
+      allowed: () => true,
+    })
+
+    const result = runner.validateConfig({
+      strategies: {
+        root: { fn: 'custom', when: ['allowed'] },
+      },
+    })
+
+    assert.equal(result.ok, true)
+  })
+})
