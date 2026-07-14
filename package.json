@@ -62,6 +62,7 @@
     "vitest": "^4.1.10"
   },
   "sideEffects": false,
+  "prepublishOnly": "npm run build",
   "dependencies": {
     "nanoid": "^5.1.16",
     "objwalk": "^0.2.0"
