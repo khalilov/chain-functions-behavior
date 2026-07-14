@@ -1,0 +1,14 @@
+.idea
+.DS_Store
+dist
+build
+node_modules
+.npm-cache
+tsconfig.tsbuildinfo
+**/*.tgz
+coverage
+tmp
+*.log
+.env
+.env.*
+!.env.example
