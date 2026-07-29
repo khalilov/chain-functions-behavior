@@ -8,6 +8,9 @@ import { type BehaviorTraceEntry } from '~/types'
 type Ctx = {
   user?: {
     name?: string
+    profile?: {
+      title?: string
+    }
   }
 }
 
@@ -102,11 +105,14 @@ describe('runtime helpers', () => {
     }
     const runtime = createRuntime(state)
 
+    runtime.set('user.profile.title', 'Engineer')
     runtime.setData('job.id', runtime.resolve('$input.job.id'))
     runtime.emit({ type: 'job.selected', payload: runtime.getData('job.id') })
     runtime.patch('patch-1')
 
     assert.equal(runtime.get('user.name'), 'Ada')
+    assert.equal(runtime.get('user.profile.title'), 'Engineer')
+    assert.deepEqual(state.context, { user: { name: 'Ada', profile: { title: 'Engineer' } } })
     assert.equal(runtime.getData('job.id'), 'job-1')
     assert.deepEqual(state.events, [{ type: 'job.selected', payload: 'job-1' }])
     assert.deepEqual(state.patches, ['patch-1'])

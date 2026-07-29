@@ -285,6 +285,7 @@ export type BehaviorRunResult<TContext, TPatch = unknown> = {
 
 export type BehaviorRuntime = {
   get(path: string): unknown
+  set(path: string, value: unknown): void
   getData(path: string): unknown
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown

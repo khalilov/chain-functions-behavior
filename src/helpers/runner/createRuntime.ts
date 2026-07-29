@@ -15,6 +15,9 @@ const runtimePick = (source: unknown, path: string): unknown => {
 
 export const createRuntime = <TContext, TPatch>(state: RunState<TContext, TPatch>): BehaviorRuntime => ({
   get: (path) => runtimePick(state.context, path),
+  set: (path, value) => {
+    set(state.context as Record<string, unknown>, path, value)
+  },
   getData: (path) => runtimePick(state.data, path),
   setData: (path, value) => {
     set(state.data, path, value)

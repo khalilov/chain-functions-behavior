@@ -218,6 +218,7 @@ export const config = defineBehaviorConfig({
 ```ts
 type BehaviorRuntime = {
   get(path: string): unknown
+  set(path: string, value: unknown): void
   getData(path: string): unknown
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
@@ -227,6 +228,8 @@ type BehaviorRuntime = {
   fail(reason?: string, data?: Record<string, unknown>): BehaviorActionFail
 }
 ```
+
+`runtime.get` and `runtime.set` read and write nested context values. `runtime.getData` and `runtime.setData` read and write temporary chain data.
 
 `runtime.resolve` resolves `$context.*`, `$data.*`, and `$input.*`.
 
