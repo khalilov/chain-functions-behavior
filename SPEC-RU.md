@@ -1,0 +1,420 @@
+# Спецификация Chain Functions Behavior
+
+`chain-functions-behavior` — npm-пакет для декларативного выполнения синхронных и асинхронных действий в упорядоченных цепочках с условиями выполнения, резервными ветками, трассировкой и ограничениями безопасности.
+
+Пакет не привязан к интерфейсу, серверному фреймворку, планировщику или модели предметной области. Приложение регистрирует действия и условия, передаёт контекст и входные данные, а исполнитель возвращает результат выполнения цепочки.
+
+## Поток выполнения
+
+```mermaid
+flowchart LR
+  DOM["DOM-событие"] --> CFB["Привязка CFB"]
+  SYNTHETIC["Синтетическое событие: API, таймер, воркер"] --> BUS["PubSubBehavior"]
+  TRANSPORT["WebSocket-транспорт"] --> WS["WebSocket-мост"]
+  WS --> BUS
+  BUS --> WS
+  WS --> TRANSPORT
+  BUS --> CFB
+
+  CFB --> CONCURRENCY["Линия конкурентного выполнения"]
+  CONCURRENCY --> RUNNER["Исполнитель поведения"]
+  RUNNER --> CONDITIONS["Условия"]
+  CONDITIONS --> ACTIONS["Действия"]
+  ACTIONS --> RESULT["Результат выполнения"]
+
+  RUNNER --> DIAGNOSTICS["Диагностика cfb.*"]
+  DIAGNOSTICS --> BUS
+  RESULT --> DIAGNOSTICS
+```
+
+## Публичный API
+
+```ts
+import {
+  createBehaviorRunner,
+  defineBehaviorConfig,
+  createMemoryTraceSink,
+  defineErrorReporter,
+  createPubSubBehavior,
+  PubSubBehavior,
+  createChainBehavior,
+  createBehaviorWs,
+  catchError,
+} from 'chain-functions-behavior'
+```
+
+```ts
+const runner = createBehaviorRunner<Context, Patch>()
+runner.registerAction('jobs.execute', executeJob)
+runner.registerCondition('hasQueue', ({ context }) => context.queue.length > 0)
+
+runner.loadConfig(config)
+const result = await runner.run('worker.tick', context, input)
+```
+
+## Основные типы
+
+```ts
+type BehaviorConfig = {
+  version?: 1
+  strategies: Record<string, BehaviorStrategy>
+  entrypoints?: Record<string, string>
+}
+
+type BehaviorStrategy = {
+  fn: string
+  props?: Record<string, unknown>
+  when?: BehaviorConditionExpression
+  then?: BehaviorNext[]
+  catch?: BehaviorNext[]
+  mode?: 'sequence' | 'selector' | 'parallel'
+  terminal?: boolean
+}
+```
+
+## Сообщение об ошибках
+
+Исполнитель работает как декларативный конвейер try/catch: действие может вернуть `runtime.fail(...)` или выбросить исключение, стратегия может определить `catch`, а приложение — централизованно сообщать об ошибках через `onError`.
+
+```ts
+const reportBehaviorError = defineErrorReporter({
+  report: ({ error, context, input, data, patches, events, trace }) => {
+    Sentry.captureException(error.cause ?? error, {
+      tags: {
+        code: error.code,
+        phase: error.stage?.phase,
+        strategy: error.stage?.strategy,
+        fn: error.stage?.fn,
+      },
+      extra: { context, input, data, patches, events, trace },
+    })
+  },
+})
+
+const runner = createBehaviorRunner({
+  trace: true,
+  onError: reportBehaviorError,
+})
+```
+
+`onError` получает `BehaviorErrorEvent`:
+
+```ts
+type BehaviorErrorEvent<TContext, TPatch> = {
+  error: BehaviorError
+  context: TContext
+  input: BehaviorInput
+  data: Record<string, unknown>
+  patches: TPatch[]
+  events: BehaviorEvent[]
+  trace?: BehaviorTraceEntry[]
+}
+```
+
+`BehaviorError.stage` определяет фазу цепочки:
+
+```ts
+type BehaviorErrorStage = {
+  phase: 'entrypoint' | 'condition' | 'action' | 'catch' | 'limit'
+  entrypoint?: string
+  strategy?: string
+  fn?: string
+  mode?: BehaviorMode
+  step?: number
+  depth?: number
+}
+```
+
+Если ошибка обработана через `catch`, `onError` всё равно вызывается для исходного сбоя, а итоговый `run` может завершиться со статусом `success`.
+
+## Модель реестров
+
+Исполнитель использует собственные реестры:
+
+```text
+src/registry/
+  actions.ts
+  conditions.ts
+```
+
+`createActionsRegistry()` создаёт `Map`, предварительно заполненный встроенными действиями.
+
+`createConditionsRegistry()` создаёт `Map`, предварительно заполненный встроенными условиями.
+
+Каждый исполнитель получает собственную изменяемую копию реестра. Приложения могут переопределить любое встроенное действие или условие:
+
+```ts
+runner.registerAction('core.setData', customSetData)
+runner.registerCondition('eq', customEq)
+```
+
+Таким образом, встроенные элементы являются значениями по умолчанию, а не отдельным неизменяемым слоем.
+
+Проверка конфигурации обращается к реестрам через минимальный контракт `has(name)`.
+
+## Встроенные действия
+
+- `core.noop`
+- `core.stop`
+- `core.fail`
+- `core.sequence`
+- `core.selector`
+- `core.parallel`
+- `core.set`
+- `core.setData`
+- `core.emit`
+- `core.patch`
+- `core.delay`
+
+`core.set` и `core.setData` выполняют одно и то же: записывают временные данные цепочки через `runtime.setData`.
+
+## Встроенные условия
+
+- `eq`, `neq`
+- `gt`, `gte`, `lt`, `lte`
+- `truthy`, `falsy`
+- `exists`, `missing`
+- `empty`, `notEmpty`
+- `includes`
+- `changed`
+- `cooldownReady`
+
+## Пример конфигурации
+
+```ts
+export const config = defineBehaviorConfig({
+  version: 1,
+  entrypoints: {
+    'worker.tick': 'worker.tick',
+  },
+  strategies: {
+    'worker.tick': {
+      fn: 'core.selector',
+      mode: 'selector',
+      then: ['worker.pickQueuedJob', 'worker.idle'],
+    },
+    'worker.pickQueuedJob': {
+      fn: 'jobs.findNext',
+      when: ['and', ['eq', '$context.worker.state', 'idle'], ['gt', '$context.worker.queueSize', 0]],
+      then: ['jobs.reserve', 'jobs.execute'],
+    },
+    'worker.idle': {
+      fn: 'core.noop',
+    },
+  },
+})
+```
+
+## Режимы выполнения
+
+`sequence` выполняет цели `then` по порядку.
+
+`selector` выполняет цели `then` до первого успешного или остановленного шага. `skip` означает «попробовать следующий вариант».
+
+`parallel` запускает цели `then` независимо. Полученные патчи и события возвращаются вызывающей стороне; исполнитель их не применяет.
+
+## Вспомогательные средства среды выполнения
+
+```ts
+type BehaviorRuntime = {
+  get(path: string): unknown
+  set(path: string, value: unknown): void
+  getData(path: string): unknown
+  setData(path: string, value: unknown): void
+  resolve(value: unknown): unknown
+  emit(event: BehaviorEvent): void
+  patch(patch: unknown): void
+  stop(reason?: string): BehaviorActionStop<unknown>
+  fail(reason?: string, data?: Record<string, unknown>): BehaviorActionFail
+}
+```
+
+`runtime.get` и `runtime.set` читают и записывают вложенные значения контекста. `runtime.getData` и `runtime.setData` читают и записывают временные данные цепочки.
+
+`runtime.resolve` разрешает ссылки `$context.*`, `$data.*` и `$input.*`.
+
+Чтение и запись путей во время выполнения реализованы непосредственно через `objwalk`.
+
+## Проверка конфигурации
+
+`validateConfig` проверяет:
+
+- неизвестные действия через `actionsRegistry.has(fn)`;
+- неизвестные операторы условий через `conditionsRegistry.has(operator)`;
+- отсутствующие стратегии в `then`, `catch` и `entrypoints`;
+- недопустимые режимы;
+- недопустимые ссылки на пути;
+- циклы без завершающего шага.
+
+## Трассировка
+
+Записи трассировки содержат:
+
+- шаг и глубину (`step`/`depth`);
+- стратегию, функцию и режим (`strategy`/`fn`/`mode`);
+- статус (`status`);
+- входные данные (`input`);
+- свойства (`props`);
+- данные до и после (`dataBefore`/`dataAfter`);
+- длительность (`durationMs`);
+- причину (`reason`).
+
+Трассировка не хранит полный снимок контекста.
+
+## Шина публикации и подписки
+
+`PubSubBehavior` — локальная для процесса шина событий-одиночка. Для изолированных сред выполнения используйте `createPubSubBehavior`.
+
+```ts
+type AppEvents = {
+  'auth.signed-in': { userId: string }
+}
+
+const bus = createPubSubBehavior<AppEvents>()
+const unsubscribe = bus.on('auth.signed-in', ({ parsed, serialized }) => {
+  console.log(parsed.userId)
+  socket.send(serialized)
+})
+
+bus.emit('auth.signed-in', { userId: 'ada' }, { origin: 'api' })
+unsubscribe()
+```
+
+```ts
+type BehaviorBus<TEvents extends object = Record<string, unknown>> = {
+  on<TEvent extends keyof TEvents>(
+    event: TEvent,
+    handler: (event: BehaviorBusEvent<TEvents[TEvent]>) => void
+  ): () => void
+  off<TEvent extends keyof TEvents>(event: TEvent, handler?: (event: BehaviorBusEvent<TEvents[TEvent]>) => void): void
+  emit<TEvent extends keyof TEvents>(
+    topic: TEvent,
+    payload: TEvents[TEvent],
+    options?: { origin?: string }
+  ): BehaviorBusEvent<TEvents[TEvent]>
+}
+
+type BehaviorBusEvent<TPayload> = {
+  id: string
+  topic: string
+  occurredAt: number
+  origin?: string
+  parsed: TPayload
+  serialized: string
+}
+```
+
+`emit` создаёт конверт и сериализует полезную нагрузку один раз до запуска подписчиков. `on` возвращает функцию отписки. `off(event, handler)` удаляет один обработчик, а `off(event)` очищает канал. Ошибка одного подписчика не блокирует остальных; `createPubSubBehavior({ onError })` получает ошибку и исходное событие. При ошибке сериализации шина передаёт `{ error }` в качестве `parsed` и тело ошибки в качестве `serialized`, после чего вызывает `onError` с исходной причиной.
+
+## Цепочка поведения
+
+`createChainBehavior` объединяет конфигурацию, действия, условия, поставщик контекста и привязки событий. Функция создаёт исполнитель и поддерживает жизненный цикл `start`/`stop`.
+
+```ts
+type Events = {
+  'form.submit': { email: string }
+}
+
+const behavior = createChainBehavior<Context, Patch, Events>(
+  {
+    actions: { 'form.save': saveForm },
+    conditions: { allowed: isAllowed },
+    events: { '[bus] form.submit': { entrypoint: 'form.submit' } },
+    config,
+  },
+  { bus, context: () => appStore.getState() }
+)
+
+const started = behavior.start()
+behavior.stop()
+```
+
+Привязка `[bus] <event-name>` запускает `entrypoint` из `config.entrypoints`. Полезная нагрузка события должна быть объектом и передаётся исполнителю как `input`. Контекст считывается для каждого события, поэтому поставщик контекста возвращает актуальное состояние.
+
+```ts
+type BehaviorStartResult = {
+  active: string[]
+  inactive: Array<{ binding: string; reason: 'unsupported-source' }>
+  validation: BehaviorValidationResult
+}
+```
+
+`start()` регистрирует действия и условия, проверяет и загружает конфигурацию. Если проверка завершилась ошибкой, привязки не устанавливаются. Повторный вызов `start()` заменяет существующие привязки. `stop()` освобождает только подписки, принадлежащие текущему поведению.
+
+`onRunnerError` в `ChainBehaviorOptions` вызывается только тогда, когда итоговый `BehaviorRunResult.status === 'failed'`. Колбэк получает `error`, `result`, `binding`, `entrypoint`, `runId` и необязательный `key`. Ошибка, обработанная стратегией через `catch`, не вызывает `onRunnerError`.
+
+### Конкурентное выполнение
+
+Каждая привязка поддерживает `parallel`, `latest`, `queue` и `drop`. Режим по умолчанию — `parallel`. Управление конкурентностью действует в пределах одной привязки и линии; `key(payload)` создаёт независимые линии.
+
+```ts
+type BehaviorConcurrencyOptions<TPayload> = {
+  mode?: 'parallel' | 'latest' | 'queue' | 'drop'
+  key?: (payload: TPayload) => string
+  maxQueueSize?: number
+  overflow?: 'drop-oldest' | 'drop-newest'
+}
+```
+
+Параметры задаются глобально в `createChainBehavior` и могут быть переопределены привязкой. Размер `queue` ограничен параметром `maxQueueSize`, который по умолчанию равен `50`. При переполнении CFB публикует `cfb.queue.overflow` и `cfb.run.dropped`.
+
+`BehaviorActionArgs` и `BehaviorRuntime` содержат `signal: AbortSignal`. Режим `latest` прерывает предыдущий запуск в той же линии. `behavior.stop({ force: true })` прерывает все активные запуски; обычный `stop()` удаляет привязки, но не отменяет выполняющиеся действия. Прерывание является кооперативным: действие использует сигнал для запросов, таймеров и собственной асинхронной работы.
+
+Диагностика жизненного цикла публикуется через настроенную шину:
+
+- `cfb.run.started`;
+- `cfb.run.finished`;
+- `cfb.run.failed`;
+- `cfb.run.cancelled`;
+- `cfb.run.dropped`;
+- `cfb.queue.overflow`.
+
+### DOM-привязки
+
+Ключ DOM-привязки имеет формат `[dom] <css-selector>:<event>`. CFB устанавливает делегированный слушатель на `options.root` или `document`. В среде без DOM привязка добавляется в `inactive` с причиной `dom-unavailable`.
+
+```ts
+'[dom] .app-button[type="submit"]:click': {
+  entrypoint: 'form.submit',
+  options: {
+    preventDefault: true,
+    stopPropagation: false,
+    capture: false,
+    once: false,
+    concurrency: { mode: 'drop' },
+    input: ({ event, element, defaultInput }) => defaultInput,
+  },
+}
+```
+
+`defaultInput` имеет тип `{ type, value?, dataset, form? }`. `dataset` содержит все атрибуты `data-*` совпавшего элемента в виде ключей camelCase. `form` строится по ближайшему элементу `<form>`; повторяющиеся поля формы превращаются в массивы, а `File` остаётся `File`. Для `submit` значение `preventDefault` по умолчанию равно `true`; для остальных событий оно и `stopPropagation` по умолчанию равны `false`.
+
+### WebSocket-мост
+
+`createBehaviorWs` подключает шину к WebSocket-подобному транспорту. Мост принимает `createSocket`, поэтому одинаково работает с браузерным WebSocket и серверным адаптером.
+
+```ts
+const ws = createBehaviorWs({
+  bus,
+  createSocket: () => new WebSocket(url),
+  inboundTopics: ['order.created'],
+  outboundTopics: ['cfb.run.finished'],
+  origin: 'worker',
+  retry: { initialDelay: 500, maxDelay: 10_000, multiplier: 2, jitter: true },
+})
+
+ws.start()
+```
+
+Входящие темы проходят через явный список разрешений. Мост разбирает JSON-конверт и вызывает `bus.dispatch(event)`, сохраняя `id`, `occurredAt`, `origin`, `parsed` и `serialized`. Исходящие темы отправляют `event.serialized` без повторной сериализации. `start`, `stop`, `reconnect` и `status` управляют жизненным циклом транспорта. Диагностические события: `cfb.ws.connecting`, `cfb.ws.connected`, `cfb.ws.disconnected`, `cfb.ws.retrying` и `cfb.ws.message.rejected`.
+
+## Ограничения безопасности
+
+Значения по умолчанию:
+
+- `maxSteps`: `100`
+- `maxDepth`: `32`
+- `timeoutMs`: `0`
+- `trace`: `false`
+
+Нарушения ограничений возвращаются как неуспешные результаты с кодами `MAX_STEPS`, `MAX_DEPTH` и `TIMEOUT`.
