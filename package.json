@@ -50,9 +50,11 @@
     "test": "test"
   },
   "scripts": {
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && vitest run",
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "prepublishOnly": "npm test && npm run build"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
@@ -62,7 +64,6 @@
     "vitest": "^4.1.10"
   },
   "sideEffects": false,
-  "prepublishOnly": "npm run build",
   "dependencies": {
     "nanoid": "^5.1.16",
     "objwalk": "^0.2.0"

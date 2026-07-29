@@ -87,6 +87,43 @@ describe('validation', () => {
       true
     )
   })
+
+  it('rejects direct and transitive nested loops through then and catch', () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const direct = runner.validateConfig({
+      strategies: {
+        outer: { fn: 'core.loop', then: [{ strategy: 'inner' }] },
+        inner: { fn: 'core.loop' },
+      },
+    })
+    const transitive = runner.validateConfig({
+      strategies: {
+        outer: { fn: 'core.loop', then: ['flow'] },
+        flow: { fn: 'core.sequence', catch: ['recover'] },
+        recover: { fn: 'core.noop', then: ['inner'] },
+        inner: { fn: 'core.loop' },
+      },
+    })
+
+    assert.equal(direct.errors.some((error) => error.code === 'NESTED_LOOP'), true)
+    assert.equal(transitive.errors.some((error) => error.code === 'NESTED_LOOP'), true)
+  })
+
+  it('allows sibling loops in parallel branches', () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const result = runner.validateConfig({
+      strategies: {
+        root: { fn: 'core.parallel', mode: 'parallel', then: ['first', 'second'] },
+        first: { fn: 'core.loop', then: ['first.action'] },
+        second: { fn: 'core.loop', then: ['second.action'] },
+        'first.action': { fn: 'core.noop' },
+        'second.action': { fn: 'core.noop' },
+      },
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.errors.some((error) => error.code === 'NESTED_LOOP'), false)
+  })
 })
 
 describe('runtime helpers', () => {

@@ -1,5 +1,6 @@
 import { type BehaviorConfig, type BehaviorValidationIssue, type BehaviorValidationResult } from '~/types'
 import { detectCycles } from '~/helpers/validation/detectCycles'
+import { detectNestedLoops } from '~/helpers/validation/detectNestedLoops'
 import { validateCondition } from '~/helpers/validation/validateCondition'
 import { validateNextList } from '~/helpers/validation/validateNextList'
 import { validateRefs } from '~/helpers/validation/validateRefs'
@@ -60,5 +61,6 @@ export const validateBehaviorConfig = (
   }
 
   detectCycles(config, errors, warnings)
+  detectNestedLoops(config, errors)
   return { ok: errors.length === 0, errors, warnings }
 }

@@ -6,6 +6,8 @@ import { cloneData } from '~/helpers/trace/cloneData'
 import { createRuntime } from '~/helpers/runner/createRuntime'
 import { defaultMaxDepth, defaultMaxSteps } from '~/helpers/runner/runnerDefaults'
 import { evaluateCondition } from '~/helpers/runner/evaluateCondition'
+import { executeSequence } from '~/helpers/runner/executeSequence'
+import { executeThen } from '~/helpers/runner/executeThen'
 import { failLimit } from '~/helpers/runner/failLimit'
 import { handleFailure } from '~/helpers/runner/handleFailure'
 import { isPromiseLike } from '~/helpers/runner/isPromiseLike'
@@ -67,7 +69,24 @@ export const executeStrategy = <TContext, TPatch>(
   }
 
   const props = resolveValue({ ...(strategy.props ?? {}), ...extraProps }, state) as BehaviorProps
-  const runtime = createRuntime(state)
+  const toRuntimeResult = (result: Normalized<TContext, TPatch>) => {
+    if (result.status === 'failed') {
+      return { status: 'failed' as const, error: result.error }
+    }
+    if (result.status === 'stopped') {
+      return { status: 'stopped' as const, ...('reason' in result && result.reason ? { reason: result.reason } : {}) }
+    }
+    if (result.status === 'skipped') {
+      return { status: 'skipped' as const, ...(result.reason ? { reason: result.reason } : {}) }
+    }
+    return { status: 'success' as const }
+  }
+  const runtime = createRuntime(state, {
+    executeThen: async () => toRuntimeResult(await executeThen(strategy, depth, state, environment)),
+    executeCatch: strategy.catch?.length
+      ? async () => toRuntimeResult(await executeSequence(strategy.catch!, depth, state, environment))
+      : async () => undefined,
+  })
   const dataBefore = cloneData(state.data)
   const traceStep = state.steps + 1
   const startedAt = Date.now()
@@ -102,6 +121,20 @@ export const executeStrategy = <TContext, TPatch>(
   const invoke = (): BehaviorActionResult<TContext, TPatch> | Promise<BehaviorActionResult<TContext, TPatch>> =>
     action({ context: state.context, props, input: state.input, signal: state.signal, runtime })
 
+  const actionThrown = (cause: unknown) =>
+    handleFailure(
+      behaviorError('ACTION_THROWN', `Action "${strategy.fn}" threw`, {
+        strategy: id,
+        fn: strategy.fn,
+        cause,
+        stage: { phase: 'action', strategy: id, fn: strategy.fn, mode: strategy.mode, depth, step: traceStep },
+      }),
+      strategy,
+      depth,
+      state,
+      environment
+    )
+
   try {
     const raw = invoke()
     if (isPromiseLike(raw)) {
@@ -118,37 +151,13 @@ export const executeStrategy = <TContext, TPatch>(
         .then((value) =>
           afterAction(value, id, strategy, depth, state, props, dataBefore, traceStep, startedAt, environment)
         )
-        .catch((cause) =>
-          handleFailure(
-            behaviorError('ACTION_THROWN', `Action "${strategy.fn}" threw`, {
-              strategy: id,
-              fn: strategy.fn,
-              cause,
-              stage: { phase: 'action', strategy: id, fn: strategy.fn, mode: strategy.mode, depth, step: traceStep },
-            }),
-            strategy,
-            depth,
-            state,
-            environment
-          )
-        )
+        .catch(actionThrown)
     }
     return afterAction(raw, id, strategy, depth, state, props, dataBefore, traceStep, startedAt, environment)
   } catch (cause) {
     if (cause instanceof BehaviorSyncAsyncError) {
       throw cause
     }
-    return handleFailure(
-      behaviorError('ACTION_THROWN', `Action "${strategy.fn}" threw`, {
-        strategy: id,
-        fn: strategy.fn,
-        cause,
-        stage: { phase: 'action', strategy: id, fn: strategy.fn, mode: strategy.mode, depth, step: traceStep },
-      }),
-      strategy,
-      depth,
-      state,
-      environment
-    )
+    return actionThrown(cause)
   }
 }

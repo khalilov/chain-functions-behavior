@@ -4,6 +4,7 @@ import { executeThen } from '~/helpers/runner/executeThen'
 import { handleFailure } from '~/helpers/runner/handleFailure'
 import { normalizeActionResult } from '~/helpers/runner/normalizeActionResult'
 import { pushTrace } from '~/helpers/runner/pushTrace'
+import { traceReason } from '~/helpers/runner/traceReason'
 import { withErrorStage } from '~/helpers/errors/withErrorStage'
 import { type Normalized, type RunState, type RunnerEnvironment } from '~/helpers/runner/runnerTypes'
 
@@ -20,6 +21,8 @@ export const afterAction = <TContext, TPatch>(
   environment: RunnerEnvironment<TContext, TPatch>
 ): Normalized<TContext, TPatch> | Promise<Normalized<TContext, TPatch>> => {
   const result = normalizeActionResult(raw)
+  const reason = traceReason(result)
+
   if (result.status === 'failed') {
     result.error = withErrorStage(result.error, {
       phase: 'action',
@@ -30,8 +33,9 @@ export const afterAction = <TContext, TPatch>(
       step: traceStep,
     })
   }
+
   applyResult(result, state, environment.mergeData)
-  const reason = result.status === 'failed' ? result.error.message : 'reason' in result ? result.reason : undefined
+
   pushTrace(
     state,
     traceStep,
@@ -44,14 +48,21 @@ export const afterAction = <TContext, TPatch>(
     startedAt,
     reason
   )
+
   if (result.status === 'failed') {
-    return handleFailure(result.error, strategy, depth, state, environment)
+    return result.handled
+      ? result
+      : handleFailure(result.error, strategy, depth, state, environment)
   }
-  if (result.status === 'skipped' || result.status === 'stopped') {
+
+  if (
+    result.status === 'skipped' ||
+    result.status === 'stopped' ||
+    strategy.terminal ||
+    result.continue === false
+  ) {
     return result
   }
-  if (strategy.terminal) {
-    return result
-  }
+
   return executeThen(strategy, depth, state, environment)
 }

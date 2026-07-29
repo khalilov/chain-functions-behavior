@@ -157,6 +157,7 @@ runner.registerCondition('eq', customEq)
 - `core.noop`
 - `core.stop`
 - `core.fail`
+- `core.loop`
 - `core.sequence`
 - `core.selector`
 - `core.parallel`
@@ -165,6 +166,11 @@ runner.registerCondition('eq', customEq)
 - `core.emit`
 - `core.patch`
 - `core.delay`
+
+`core.loop` выполняет ветку `then` каждые `props.duration` миллисекунд до отмены запуска. Пересекающиеся итерации пропускаются. При ошибке итерации выполняется `catch`; после успешного `catch` цикл продолжается.
+Вложенные стратегии `core.loop` запрещены, включая транзитивные ссылки через `then` или `catch`. Соседние циклы в отдельных ветках разрешены.
+
+Экшены могут выполнять собственные настроенные ветки через `runtime.executeThen()` и `runtime.executeCatch()`. `executeThen()` учитывает `mode` стратегии, поэтому управляющие экшены вроде `core.loop` могут компоноваться с выполнением `sequence`, `selector` и `parallel`, не обращаясь к внутренностям runner.
 
 `core.set` и `core.setData` выполняют одно и то же: записывают временные данные цепочки через `runtime.setData`.
 

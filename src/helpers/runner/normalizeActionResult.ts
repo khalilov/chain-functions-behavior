@@ -23,12 +23,21 @@ export const normalizeActionResult = <TContext, TPatch>(
     return { status: 'stopped', patches, events, ...(raw.reason ? { reason: raw.reason } : {}) }
   }
   if (raw.type === 'fail') {
+    const suppliedError =
+      raw.error &&
+      typeof raw.error === 'object' &&
+      'code' in raw.error &&
+      'message' in raw.error
+        ? raw.error
+        : undefined
     return {
       status: 'failed',
-      error: behaviorError('ACTION_THROWN', raw.reason ?? 'Action failed', { cause: raw.error }),
+      error: suppliedError as ReturnType<typeof behaviorError> | undefined ??
+        behaviorError('ACTION_THROWN', raw.reason ?? 'Action failed', { cause: raw.error }),
       patches: [],
       events: [],
       ...(raw.data ? { data: raw.data } : {}),
+      ...(raw.handled ? { handled: true } : {}),
     }
   }
   return {
@@ -37,5 +46,6 @@ export const normalizeActionResult = <TContext, TPatch>(
     events,
     ...(raw.context !== undefined ? { context: raw.context } : {}),
     ...(raw.data ? { data: raw.data } : {}),
+    ...(raw.continue !== undefined ? { continue: raw.continue } : {}),
   }
 }

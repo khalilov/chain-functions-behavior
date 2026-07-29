@@ -61,6 +61,12 @@ export type BehaviorActionSuccess<TContext, TPatch> = {
   continue?: boolean
 }
 
+export type BehaviorRuntimeBranchResult =
+  | { status: 'success' }
+  | { status: 'skipped'; reason?: string }
+  | { status: 'stopped'; reason?: string }
+  | { status: 'failed'; error: BehaviorError }
+
 export type BehaviorActionSkip = {
   type: 'skip'
   reason?: string
@@ -79,6 +85,7 @@ export type BehaviorActionFail = {
   reason?: string
   error?: unknown
   data?: Record<string, unknown>
+  handled?: boolean
 }
 
 export type BehaviorEvent = {
@@ -290,6 +297,8 @@ export type BehaviorRuntime = {
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
   signal: AbortSignal
+  executeThen(): Promise<BehaviorRuntimeBranchResult>
+  executeCatch(): Promise<BehaviorRuntimeBranchResult | undefined>
   emit(event: BehaviorEvent): void
   patch(patch: unknown): void
   stop(reason?: string): BehaviorActionStop<unknown>

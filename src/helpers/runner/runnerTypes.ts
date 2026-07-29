@@ -14,12 +14,20 @@ export type Normalized<TContext, TPatch> =
       status: 'success'
       context?: TContext
       data?: Record<string, unknown>
+      continue?: boolean
       patches: TPatch[]
       events: [] | BehaviorEvent[]
     }
   | { status: 'skipped'; reason?: string; data?: Record<string, unknown>; patches: TPatch[]; events: [] }
   | { status: 'stopped'; reason?: string; patches: TPatch[]; events: [] | BehaviorEvent[] }
-  | { status: 'failed'; error: BehaviorError; data?: Record<string, unknown>; patches: TPatch[]; events: [] }
+  | {
+      status: 'failed'
+      error: BehaviorError
+      data?: Record<string, unknown>
+      handled?: boolean
+      patches: TPatch[]
+      events: []
+    }
 
 export type RunState<TContext, TPatch> = {
   context: TContext

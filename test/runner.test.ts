@@ -97,6 +97,82 @@ describe('behavior runner', () => {
     assert.throws(() => runner.runSync('root', {}), /async action|Promise/)
   })
 
+  it('core.loop executes then on every interval until aborted', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const controller = new AbortController()
+    let calls = 0
+
+    runner.registerAction('tick', () => {
+      calls += 1
+      if (calls === 3) {
+        controller.abort()
+      }
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', props: { duration: 1 }, then: ['tick'] },
+        tick: { fn: 'tick' },
+      },
+    })
+
+    const result = await runner.run('root', {}, {}, { signal: controller.signal })
+
+    assert.equal(result.status, 'success')
+    assert.equal(calls, 3)
+  })
+
+  it('core.loop resolves on abort even if the then branch never settles', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const controller = new AbortController()
+
+    runner.registerAction('stuck', () => new Promise<void>(() => {}))
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', props: { duration: 1 }, then: ['stuck'] },
+        stuck: { fn: 'stuck' },
+      },
+    })
+
+    setTimeout(() => controller.abort(), 10)
+    const result = await runner.run('root', {}, {}, { signal: controller.signal })
+
+    assert.equal(result.status, 'success')
+  })
+
+  it('core.loop executes its then branch in parallel mode', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const controller = new AbortController()
+    let active = 0
+    let maxActive = 0
+    let completed = 0
+
+    const action = async (): Promise<void> => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      active -= 1
+      completed += 1
+      if (completed === 2) {
+        controller.abort()
+      }
+    }
+
+    runner.registerActions({ first: action, second: action })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', mode: 'parallel', props: { duration: 1 }, then: ['first', 'second'] },
+        first: { fn: 'first' },
+        second: { fn: 'second' },
+      },
+    })
+
+    const result = await runner.run('root', {}, {}, { signal: controller.signal })
+
+    assert.equal(result.status, 'success')
+    assert.equal(maxActive, 2)
+    assert.equal(completed, 2)
+  })
+
   it('maxSteps stops cycles', async () => {
     const runner = createBehaviorRunner<Ctx>({ maxSteps: 3 })
     runner.loadConfig({ strategies: { root: { fn: 'core.noop', then: ['root'] } } })

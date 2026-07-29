@@ -2,6 +2,7 @@ import { type BehaviorAction } from '~/types'
 import { coreDelay } from '~/helpers/actions/coreDelay'
 import { coreEmit } from '~/helpers/actions/coreEmit'
 import { coreFail } from '~/helpers/actions/coreFail'
+import { coreLoop } from '~/helpers/actions/coreLoop'
 import { coreNoop } from '~/helpers/actions/coreNoop'
 import { corePatch } from '~/helpers/actions/corePatch'
 import { coreSetData } from '~/helpers/actions/coreSetData'
@@ -14,6 +15,7 @@ export const createActionsRegistry = <TContext, TPatch>(): ActionsRegistry<TCont
     ['core.noop', coreNoop()],
     ['core.stop', coreStop()],
     ['core.fail', coreFail()],
+    ['core.loop', coreLoop()],
     ['core.sequence', coreNoop()],
     ['core.selector', coreNoop()],
     ['core.parallel', coreNoop()],
