@@ -130,6 +130,30 @@ describe('behavior runner', () => {
     assert.equal(calls, 3)
   })
 
+  it('core.loop executes the first iteration immediately when configured', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const controller = new AbortController()
+    let calls = 0
+
+    runner.registerAction('tick', () => {
+      calls += 1
+      controller.abort()
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', props: { duration: 100, immediate: true }, then: ['tick'] },
+        tick: { fn: 'tick' },
+      },
+    })
+
+    const fallback = setTimeout(() => controller.abort(), 20)
+    const result = await runner.run('root', {}, {}, { signal: controller.signal })
+    clearTimeout(fallback)
+
+    assert.equal(result.status, 'success')
+    assert.equal(calls, 1)
+  })
+
   it('core.loop resolves on abort even if the then branch never settles', async () => {
     const runner = createBehaviorRunner<Ctx>()
     const controller = new AbortController()

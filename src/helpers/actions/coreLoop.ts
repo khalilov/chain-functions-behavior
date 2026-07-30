@@ -7,6 +7,7 @@ export const coreLoop =
     new Promise<BehaviorActionResult<TContext, TPatch>>((resolve) => {
       const configuredDuration = Number(props.duration ?? 0)
       const duration = Number.isFinite(configuredDuration) ? Math.max(1, configuredDuration) : 1
+      const immediate = props.immediate === true
       let running = false
       let stopped = false
 
@@ -68,5 +69,12 @@ export const coreLoop =
 
       if (signal.aborted) {
         abort()
+        return
+      }
+
+      if (immediate) {
+        void tick().catch((error: unknown) => {
+          finish({ type: 'fail', reason: 'core.loop tick failed', error })
+        })
       }
     })
