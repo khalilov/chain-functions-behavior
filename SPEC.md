@@ -167,7 +167,7 @@ Configuration validation accesses registries through the minimal `has(name)` con
 - `core.patch`
 - `core.delay`
 
-`core.loop` executes its `then` branch every `props.duration` milliseconds until the run is aborted. When `props.immediate` is `true`, the first iteration executes immediately instead of waiting for the first interval. Overlapping iterations are skipped. A failed iteration executes `catch`; the loop continues when `catch` succeeds.
+`core.loop` executes its `then` branch every `props.duration` milliseconds until the run is aborted or `props.max` iterations complete. The default maximum is `1000`. When `props.immediate` is `true`, the first iteration executes immediately instead of waiting for the first interval. Overlapping iterations are skipped. A failed iteration executes `catch`; the loop continues when `catch` succeeds.
 Nested `core.loop` strategies are invalid, including transitive references through `then` or `catch`. Sibling loops in separate branches are allowed.
 
 Actions can execute their own configured branches through `runtime.executeThen()` and `runtime.executeCatch()`. `executeThen()` honors the strategy's `mode`, so control actions such as `core.loop` can compose with `sequence`, `selector`, and `parallel` execution without accessing runner internals.
@@ -426,9 +426,11 @@ Inbound topics pass an explicit allowlist. The bridge parses a JSON envelope and
 
 Defaults:
 
-- `maxSteps`: `100`
+- `maxStepCount`: `1000`
 - `maxDepth`: `32`
 - `timeoutMs`: `0`
 - `trace`: `false`
 
 Limit failures are returned as failed results with `MAX_STEPS`, `MAX_DEPTH`, and `TIMEOUT` codes.
+
+Set `maxStepCount` or `maxDepth` to `-1` to disable that check. Validation emits a `LIMIT_DISABLED` warning because unbounded runs may execute indefinitely and unbounded nesting may exhaust the call stack.

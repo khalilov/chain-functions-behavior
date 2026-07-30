@@ -312,6 +312,8 @@ export type BehaviorRuntime = {
 }
 
 export type BehaviorRunnerOptions<TContext, TPatch> = {
+  maxStepCount?: number
+  /** @deprecated Use `maxStepCount` instead. */
   maxSteps?: number
   maxDepth?: number
   timeoutMs?: number

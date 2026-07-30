@@ -154,6 +154,26 @@ describe('behavior runner', () => {
     assert.equal(calls, 1)
   })
 
+  it('core.loop stops after the configured maximum number of iterations', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    let calls = 0
+
+    runner.registerAction('tick', () => {
+      calls += 1
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', props: { duration: 1, immediate: true, max: 3 }, then: ['tick'] },
+        tick: { fn: 'tick' },
+      },
+    })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.status, 'success')
+    assert.equal(calls, 3)
+  })
+
   it('core.loop resolves on abort even if the then branch never settles', async () => {
     const runner = createBehaviorRunner<Ctx>()
     const controller = new AbortController()
@@ -206,8 +226,8 @@ describe('behavior runner', () => {
     assert.equal(completed, 2)
   })
 
-  it('maxSteps stops cycles', async () => {
-    const runner = createBehaviorRunner<Ctx>({ maxSteps: 3 })
+  it('maxStepCount stops cycles', async () => {
+    const runner = createBehaviorRunner<Ctx>({ maxStepCount: 3 })
     runner.loadConfig({ strategies: { root: { fn: 'core.noop', then: ['root'] } } })
     const result = await runner.run('root', {})
     assert.equal(result.status, 'failed')

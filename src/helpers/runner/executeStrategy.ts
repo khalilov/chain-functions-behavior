@@ -4,7 +4,7 @@ import { afterAction } from '~/helpers/runner/afterAction'
 import { behaviorError } from '~/helpers/errors/behaviorError'
 import { cloneData } from '~/helpers/trace/cloneData'
 import { createRuntime } from '~/helpers/runner/createRuntime'
-import { defaultMaxDepth, defaultMaxSteps } from '~/helpers/runner/runnerDefaults'
+import { defaultMaxDepth, defaultMaxStepCount } from '~/helpers/runner/runnerDefaults'
 import { evaluateCondition } from '~/helpers/runner/evaluateCondition'
 import { executeSequence } from '~/helpers/runner/executeSequence'
 import { executeThen } from '~/helpers/runner/executeThen'
@@ -32,10 +32,12 @@ export const executeStrategy = <TContext, TPatch>(
       events: [],
     }
   }
-  if (depth > (environment.options.maxDepth ?? defaultMaxDepth)) {
+  const maxDepth = environment.options.maxDepth ?? defaultMaxDepth
+  if (maxDepth !== -1 && depth > maxDepth) {
     return failLimit('MAX_DEPTH', `Max depth exceeded at strategy "${id}"`, id)
   }
-  if (state.steps >= (environment.options.maxSteps ?? defaultMaxSteps)) {
+  const maxStepCount = environment.options.maxStepCount ?? environment.options.maxSteps ?? defaultMaxStepCount
+  if (maxStepCount !== -1 && state.steps >= maxStepCount) {
     return failLimit('MAX_STEPS', `Max steps exceeded at strategy "${id}"`, id)
   }
   if (environment.options.timeoutMs && Date.now() - state.startedAt > environment.options.timeoutMs) {

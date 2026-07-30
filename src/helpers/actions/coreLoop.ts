@@ -1,13 +1,18 @@
 import { type BehaviorAction, type BehaviorActionResult } from '~/types'
 import { stopResult } from '~/helpers/runner/stopResult'
 
+const defaultMax = 1000
+
 export const coreLoop =
   <TContext, TPatch>(): BehaviorAction<TContext, TPatch> =>
   ({ props, signal, runtime }) =>
     new Promise<BehaviorActionResult<TContext, TPatch>>((resolve) => {
       const configuredDuration = Number(props.duration ?? 0)
       const duration = Number.isFinite(configuredDuration) ? Math.max(1, configuredDuration) : 1
+      const configuredMax = Number(props.max ?? defaultMax)
+      const max = Number.isFinite(configuredMax) ? Math.max(1, Math.floor(configuredMax)) : defaultMax
       const immediate = props.immediate === true
+      let iterationCount = 0
       let running = false
       let stopped = false
 
@@ -32,6 +37,7 @@ export const coreLoop =
         }
 
         running = true
+        iterationCount += 1
 
         try {
           const result = await runtime.executeThen()
@@ -49,6 +55,10 @@ export const coreLoop =
           } else if (result.status === 'stopped') {
 
             finish(stopResult<TPatch>(result.reason))
+          }
+
+          if (!stopped && iterationCount >= max) {
+            finish({ continue: false })
           }
         } finally {
           running = false

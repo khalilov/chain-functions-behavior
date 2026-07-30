@@ -88,6 +88,24 @@ describe('validation', () => {
     )
   })
 
+  it('warns when runner safety limits are disabled', () => {
+    const runner = createBehaviorRunner<Ctx>({ maxStepCount: -1, maxDepth: -1 })
+    const result = runner.validateConfig({
+      strategies: {
+        root: { fn: 'core.noop' },
+      },
+    })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(
+      result.warnings.map(({ code, path }) => ({ code, path })),
+      [
+        { code: 'LIMIT_DISABLED', path: 'options.maxStepCount' },
+        { code: 'LIMIT_DISABLED', path: 'options.maxDepth' },
+      ]
+    )
+  })
+
   it('rejects direct and transitive nested loops through then and catch', () => {
     const runner = createBehaviorRunner<Ctx>()
     const direct = runner.validateConfig({
@@ -282,5 +300,21 @@ describe('trace and safety limits', () => {
     })
 
     assert.equal((await timeoutRunner.run('root', {})).error?.code, 'TIMEOUT')
+  })
+
+  it('allows step-count and depth checks to be disabled', async () => {
+    const runner = createBehaviorRunner<Ctx>({ maxStepCount: -1, maxDepth: -1 })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.noop', then: ['next'] },
+        next: { fn: 'core.noop', then: ['last'] },
+        last: { fn: 'core.noop' },
+      },
+    })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.status, 'success')
+    assert.equal(result.steps, 3)
   })
 })

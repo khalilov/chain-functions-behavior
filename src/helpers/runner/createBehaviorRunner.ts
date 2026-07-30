@@ -18,6 +18,7 @@ import { finishRunResult } from '~/helpers/runner/finishRunResult'
 import { behaviorError } from '~/helpers/errors/behaviorError'
 import { isPromiseLike } from '~/helpers/runner/isPromiseLike'
 import { resolveEntrypoint } from '~/helpers/runner/resolveEntrypoint'
+import { runnerLimitWarnings } from '~/helpers/validation/runnerLimitWarnings'
 import { type Normalized, type RunnerEnvironment, type RunState } from '~/helpers/runner/runnerTypes'
 import { validateBehaviorConfig } from '~/helpers/validation/validateBehaviorConfig'
 
@@ -52,8 +53,10 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
     Object.entries(items).forEach(([name, condition]) => registerCondition(name, condition))
   }
 
-  const validateConfig = (target = configRef.current): BehaviorValidationResult =>
-    validateBehaviorConfig(target, actionsRegistry, conditionsRegistry)
+  const validateConfig = (target = configRef.current): BehaviorValidationResult => {
+    const result = validateBehaviorConfig(target, actionsRegistry, conditionsRegistry)
+    return { ...result, warnings: [...result.warnings, ...runnerLimitWarnings(options)] }
+  }
 
   const loadConfig = (nextConfig: BehaviorConfig): BehaviorValidationResult => {
     configRef.current = nextConfig
