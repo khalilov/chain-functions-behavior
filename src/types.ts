@@ -293,7 +293,13 @@ export type BehaviorRunResult<TContext, TPatch = unknown> = {
 export type BehaviorRuntime = {
   get(path: string): unknown
   set(path: string, value: unknown): void
+  data: {
+    get(path: string): unknown
+    set(path: string, value: unknown): void
+  }
+  /** @deprecated Use `runtime.data.get(path)` instead. */
   getData(path: string): unknown
+  /** @deprecated Use `runtime.data.set(path, value)` instead. */
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
   signal: AbortSignal
@@ -391,7 +397,7 @@ export type BehaviorConditionFn<TContext> = (
     context: TContext
     input: BehaviorInput
     data: Record<string, unknown>
-    runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'getData'>
+    runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'data' | 'getData'>
   },
   ...conditionArgs: unknown[]
 ) => boolean

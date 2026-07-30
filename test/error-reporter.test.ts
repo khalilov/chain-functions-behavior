@@ -48,9 +48,9 @@ describe('error reporter', () => {
         phase: 'action',
         step: 2,
         depth: 1,
-        context: { user: 'Ada' },
+        context: { user: 'Ada', phase: 'before' },
         input: { command: 'run' },
-        data: { phase: 'before' },
+        data: {},
         traceLength: 1,
       }
     )

@@ -12,7 +12,7 @@ type EvaluateConditionScope<TContext> = {
   context: TContext
   input: BehaviorInput
   data: Record<string, unknown>
-  runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'getData'>
+  runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'data' | 'getData'>
   strategy?: string
 }
 

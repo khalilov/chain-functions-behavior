@@ -1,11 +1,11 @@
 import { type BehaviorAction } from '~/types'
 
-export const coreSetData =
+export const coreSet =
   <TContext, TPatch>(): BehaviorAction<TContext, TPatch> =>
   ({ props, runtime }) => {
     const path = props.path
     if (typeof path === 'string') {
-      runtime.data.set(path, props.value)
+      runtime.set(path, props.value)
     }
     return props.data ? { data: props.data as Record<string, unknown> } : undefined
   }

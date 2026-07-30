@@ -5,6 +5,7 @@ import { coreFail } from '~/helpers/actions/coreFail'
 import { coreLoop } from '~/helpers/actions/coreLoop'
 import { coreNoop } from '~/helpers/actions/coreNoop'
 import { corePatch } from '~/helpers/actions/corePatch'
+import { coreSet } from '~/helpers/actions/coreSet'
 import { coreSetData } from '~/helpers/actions/coreSetData'
 import { coreStop } from '~/helpers/actions/coreStop'
 
@@ -19,7 +20,7 @@ export const createActionsRegistry = <TContext, TPatch>(): ActionsRegistry<TCont
     ['core.sequence', coreNoop()],
     ['core.selector', coreNoop()],
     ['core.parallel', coreNoop()],
-    ['core.set', coreSetData()],
+    ['core.set', coreSet()],
     ['core.setData', coreSetData()],
     ['core.emit', coreEmit()],
     ['core.patch', corePatch()],

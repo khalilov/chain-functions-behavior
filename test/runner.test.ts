@@ -7,6 +7,7 @@ type Ctx = {
   now?: number
   last?: number
   log?: string[]
+  target?: string
 }
 
 describe('behavior runner', () => {
@@ -79,16 +80,24 @@ describe('behavior runner', () => {
     runner.registerAction('mark', () => ({ patch: 'ok' }))
     runner.loadConfig({
       strategies: {
-        root: { fn: 'core.sequence', then: ['set', 'mark'] },
-        set: { fn: 'core.set', props: { path: 'target', value: '$input.target' } },
+        root: { fn: 'core.sequence', then: ['setContext', 'setData', 'mark'] },
+        setContext: { fn: 'core.set', props: { path: 'target', value: '$input.target' } },
+        setData: { fn: 'core.setData', props: { path: 'target', value: '$input.target' } },
         mark: {
           fn: 'mark',
-          when: ['and', ['eq', '$context.worker.state', 'idle'], ['eq', '$data.target', '$input.target']],
+          when: [
+            'and',
+            ['eq', '$context.worker.state', 'idle'],
+            ['eq', '$context.target', '$input.target'],
+            ['eq', '$data.target', '$input.target'],
+          ],
         },
       },
     })
     const result = await runner.run('root', { worker: { state: 'idle' } }, { target: 'job-1' })
     assert.deepEqual(result.patches, ['ok'])
+    assert.equal(result.context.target, 'job-1')
+    assert.equal(result.data.target, 'job-1')
   })
 
   it('runSync throws on async action', () => {

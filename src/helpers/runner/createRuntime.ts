@@ -4,16 +4,6 @@ import { type RunState } from '~/helpers/runner/runnerTypes'
 import { resolveValue } from '~/helpers/path/resolveValue'
 import { stopResult } from '~/helpers/runner/stopResult'
 
-const runtimePick = (source: unknown, path: string): unknown => {
-  if (!path) {
-    return source
-  }
-  if (!source || typeof source !== 'object') {
-    return undefined
-  }
-  return pick(source as Record<string, unknown>, path)
-}
-
 type RuntimeBranches = {
   executeThen(): Promise<BehaviorRuntimeBranchResult>
   executeCatch(): Promise<BehaviorRuntimeBranchResult | undefined>
@@ -25,25 +15,39 @@ export const createRuntime = <TContext, TPatch>(
     executeThen: async () => ({ status: 'success' }),
     executeCatch: async () => undefined,
   }
-): BehaviorRuntime => ({
-  get: (path) => runtimePick(state.context, path),
-  set: (path, value) => {
-    set(state.context as Record<string, unknown>, path, value)
-  },
-  getData: (path) => runtimePick(state.data, path),
-  setData: (path, value) => {
-    set(state.data, path, value)
-  },
-  resolve: (value) => resolveValue(value, state),
-  signal: state.signal,
-  executeThen: branches.executeThen,
-  executeCatch: branches.executeCatch,
-  emit: (event) => state.events.push(event),
-  patch: (patch) => state.patches.push(patch as TPatch),
-  stop: (reason) => stopResult(reason),
-  fail: (reason, data) => ({
-    type: 'fail',
-    ...(reason ? { reason } : {}),
-    ...(data ? { data } : {}),
-  }),
-})
+): BehaviorRuntime => {
+  const data = {
+    get: (path: string) => pick(state.data, path),
+    set: (path: string, value: unknown) => {
+      set(state.data, path, value)
+    },
+  }
+
+  return {
+    get: (path) => pick(state.context as Record<string, unknown>, path),
+    set: (path, value) => {
+      set(state.context as Record<string, unknown>, path, value)
+    },
+    data,
+    getData: (path) => {
+      console.warn('runtime.getData() is deprecated; use runtime.data.get() instead')
+      return data.get(path)
+    },
+    setData: (path, value) => {
+      console.warn('runtime.setData() is deprecated; use runtime.data.set() instead')
+      data.set(path, value)
+    },
+    resolve: (value) => resolveValue(value, state),
+    signal: state.signal,
+    executeThen: branches.executeThen,
+    executeCatch: branches.executeCatch,
+    emit: (event) => state.events.push(event),
+    patch: (patch) => state.patches.push(patch as TPatch),
+    stop: (reason) => stopResult(reason),
+    fail: (reason, failureData) => ({
+      type: 'fail',
+      ...(reason ? { reason } : {}),
+      ...(failureData ? { data: failureData } : {}),
+    }),
+  }
+}

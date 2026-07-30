@@ -172,7 +172,7 @@ Nested `core.loop` strategies are invalid, including transitive references throu
 
 Actions can execute their own configured branches through `runtime.executeThen()` and `runtime.executeCatch()`. `executeThen()` honors the strategy's `mode`, so control actions such as `core.loop` can compose with `sequence`, `selector`, and `parallel` execution without accessing runner internals.
 
-`core.set` and `core.setData` do the same thing: write temporary chain data through `runtime.setData`.
+`core.set` writes a nested context value through `runtime.set`. `core.setData` writes temporary chain data through `runtime.data.set`.
 
 ## Built-In Conditions
 
@@ -225,7 +225,13 @@ export const config = defineBehaviorConfig({
 type BehaviorRuntime = {
   get(path: string): unknown
   set(path: string, value: unknown): void
+  data: {
+    get(path: string): unknown
+    set(path: string, value: unknown): void
+  }
+  /** @deprecated Use runtime.data.get. */
   getData(path: string): unknown
+  /** @deprecated Use runtime.data.set. */
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
   emit(event: BehaviorEvent): void
@@ -235,7 +241,9 @@ type BehaviorRuntime = {
 }
 ```
 
-`runtime.get` and `runtime.set` read and write nested context values. `runtime.getData` and `runtime.setData` read and write temporary chain data.
+`runtime.get` and `runtime.set` read and write nested context values. `runtime.data.get` and `runtime.data.set` read and write temporary chain data.
+
+`runtime.getData` and `runtime.setData` are deprecated compatibility aliases and emit a console warning when called.
 
 `runtime.resolve` resolves `$context.*`, `$data.*`, and `$input.*`.
 

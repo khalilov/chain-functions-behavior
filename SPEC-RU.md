@@ -172,7 +172,7 @@ runner.registerCondition('eq', customEq)
 
 Экшены могут выполнять собственные настроенные ветки через `runtime.executeThen()` и `runtime.executeCatch()`. `executeThen()` учитывает `mode` стратегии, поэтому управляющие экшены вроде `core.loop` могут компоноваться с выполнением `sequence`, `selector` и `parallel`, не обращаясь к внутренностям runner.
 
-`core.set` и `core.setData` выполняют одно и то же: записывают временные данные цепочки через `runtime.setData`.
+`core.set` записывает вложенное значение контекста через `runtime.set`. `core.setData` записывает временные данные цепочки через `runtime.data.set`.
 
 ## Встроенные условия
 
@@ -225,7 +225,13 @@ export const config = defineBehaviorConfig({
 type BehaviorRuntime = {
   get(path: string): unknown
   set(path: string, value: unknown): void
+  data: {
+    get(path: string): unknown
+    set(path: string, value: unknown): void
+  }
+  /** @deprecated Используйте runtime.data.get. */
   getData(path: string): unknown
+  /** @deprecated Используйте runtime.data.set. */
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
   emit(event: BehaviorEvent): void
@@ -235,7 +241,9 @@ type BehaviorRuntime = {
 }
 ```
 
-`runtime.get` и `runtime.set` читают и записывают вложенные значения контекста. `runtime.getData` и `runtime.setData` читают и записывают временные данные цепочки.
+`runtime.get` и `runtime.set` читают и записывают вложенные значения контекста. `runtime.data.get` и `runtime.data.set` читают и записывают временные данные цепочки.
+
+`runtime.getData` и `runtime.setData` сохранены как устаревшие алиасы для совместимости и при вызове выводят предупреждение в консоль.
 
 `runtime.resolve` разрешает ссылки `$context.*`, `$data.*` и `$input.*`.
 

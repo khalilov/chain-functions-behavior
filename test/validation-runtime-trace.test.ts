@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { describe, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createBehaviorRunner, createMemoryTraceSink } from '~/index'
 import { createRuntime } from '~/helpers/runner/createRuntime'
 import { type RunState } from '~/helpers/runner/runnerTypes'
@@ -143,14 +143,14 @@ describe('runtime helpers', () => {
     const runtime = createRuntime(state)
 
     runtime.set('user.profile.title', 'Engineer')
-    runtime.setData('job.id', runtime.resolve('$input.job.id'))
-    runtime.emit({ type: 'job.selected', payload: runtime.getData('job.id') })
+    runtime.data.set('job.id', runtime.resolve('$input.job.id'))
+    runtime.emit({ type: 'job.selected', payload: runtime.data.get('job.id') })
     runtime.patch('patch-1')
 
     assert.equal(runtime.get('user.name'), 'Ada')
     assert.equal(runtime.get('user.profile.title'), 'Engineer')
     assert.deepEqual(state.context, { user: { name: 'Ada', profile: { title: 'Engineer' } } })
-    assert.equal(runtime.getData('job.id'), 'job-1')
+    assert.equal(runtime.data.get('job.id'), 'job-1')
     assert.deepEqual(state.events, [{ type: 'job.selected', payload: 'job-1' }])
     assert.deepEqual(state.patches, ['patch-1'])
     assert.deepEqual(runtime.stop('done'), { type: 'stop', reason: 'done' })
@@ -159,6 +159,30 @@ describe('runtime helpers', () => {
       reason: 'failed',
       data: { id: 'job-1' },
     })
+  })
+
+  it('keeps deprecated runtime data methods with warnings', () => {
+    const state: RunState<Ctx, string> = {
+      context: { user: { name: 'Ada' } },
+      input: {},
+      data: {},
+      patches: [],
+      events: [],
+      steps: 0,
+      startedAt: Date.now(),
+      sync: false,
+      signal: new AbortController().signal,
+      reportedErrors: [],
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const runtime = createRuntime(state)
+
+    runtime.setData('job.id', 'job-1')
+
+    assert.equal(runtime.getData('job.id'), 'job-1')
+    expect(warn).toHaveBeenNthCalledWith(1, 'runtime.setData() is deprecated; use runtime.data.set() instead')
+    expect(warn).toHaveBeenNthCalledWith(2, 'runtime.getData() is deprecated; use runtime.data.get() instead')
+    warn.mockRestore()
   })
 })
 
@@ -192,9 +216,10 @@ describe('trace and safety limits', () => {
         fn: 'core.set',
         status: 'success',
         dataBefore: {},
-        dataAfter: { seen: true },
+        dataAfter: {},
       }
     )
+    assert.equal(result.context.seen, true)
   })
 
   it('pushes trace entries into a custom trace sink', async () => {
