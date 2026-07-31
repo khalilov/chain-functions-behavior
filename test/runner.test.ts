@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { describe, it } from 'vitest'
+import { describe, it, vi } from 'vitest'
 import { createBehaviorRunner, defineBehaviorConfig } from '~/index'
 
 type Ctx = {
@@ -154,6 +154,26 @@ describe('behavior runner', () => {
     assert.equal(calls, 1)
   })
 
+  it('core.loop counts the immediate iteration toward max', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    let calls = 0
+
+    runner.registerAction('tick', () => {
+      calls += 1
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', props: { duration: 100, immediate: true, max: 1 }, then: ['tick'] },
+        tick: { fn: 'tick' },
+      },
+    })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.status, 'success')
+    assert.equal(calls, 1)
+  })
+
   it('core.loop stops after the configured maximum number of iterations', async () => {
     const runner = createBehaviorRunner<Ctx>()
     let calls = 0
@@ -172,6 +192,91 @@ describe('behavior runner', () => {
 
     assert.equal(result.status, 'success')
     assert.equal(calls, 3)
+  })
+
+  it('core.loop treats max -1 as unlimited until aborted', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const controller = new AbortController()
+    let calls = 0
+
+    runner.registerAction('tick', () => {
+      calls += 1
+      if (calls === 3) {
+        controller.abort()
+      }
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.loop', props: { duration: 1, immediate: true, max: -1 }, then: ['tick'] },
+        tick: { fn: 'tick' },
+      },
+    })
+
+    const result = await runner.run('root', {}, {}, { signal: controller.signal })
+
+    assert.equal(result.status, 'success')
+    assert.equal(calls, 3)
+  })
+
+  it('core.loop uses the default maximum when max is absent', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const runner = createBehaviorRunner<Ctx>({ maxStepCount: -1 })
+      let calls = 0
+
+      runner.registerAction('tick', () => {
+        calls += 1
+      })
+      runner.loadConfig({
+        strategies: {
+          root: { fn: 'core.loop', props: { duration: 1, immediate: true }, then: ['tick'] },
+          tick: { fn: 'tick' },
+        },
+      })
+
+      const resultPromise = runner.run('root', {})
+      await vi.advanceTimersByTimeAsync(1000)
+      const result = await resultPromise
+
+      assert.equal(result.status, 'success')
+      assert.equal(calls, 1000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    ['zero', 0],
+    ['less than -1', -2],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('core.loop uses the default maximum when max is %s', async (_name, max) => {
+    vi.useFakeTimers()
+
+    try {
+      const runner = createBehaviorRunner<Ctx>({ maxStepCount: -1 })
+      let calls = 0
+
+      runner.registerAction('tick', () => {
+        calls += 1
+      })
+      runner.loadConfig({
+        strategies: {
+          root: { fn: 'core.loop', props: { duration: 1, immediate: true, max }, then: ['tick'] },
+          tick: { fn: 'tick' },
+        },
+      })
+
+      const resultPromise = runner.run('root', {})
+      await vi.advanceTimersByTimeAsync(1000)
+      const result = await resultPromise
+
+      assert.equal(result.status, 'success')
+      assert.equal(calls, 1000)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('core.loop resolves on abort even if the then branch never settles', async () => {

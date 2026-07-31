@@ -10,7 +10,12 @@ export const coreLoop =
       const configuredDuration = Number(props.duration ?? 0)
       const duration = Number.isFinite(configuredDuration) ? Math.max(1, configuredDuration) : 1
       const configuredMax = Number(props.max ?? defaultMax)
-      const max = Number.isFinite(configuredMax) ? Math.max(1, Math.floor(configuredMax)) : defaultMax
+      const max =
+        configuredMax === -1
+          ? Number.POSITIVE_INFINITY
+          : Number.isFinite(configuredMax) && configuredMax >= 1
+            ? Math.floor(configuredMax)
+            : defaultMax
       const immediate = props.immediate === true
       let iterationCount = 0
       let running = false
