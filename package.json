@@ -66,6 +66,6 @@
   "sideEffects": false,
   "dependencies": {
     "nanoid": "^5.1.16",
-    "objwalk": "^0.2.0"
+    "objwalk": "^1.1.0"
   }
 }

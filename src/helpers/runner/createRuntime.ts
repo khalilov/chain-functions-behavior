@@ -3,6 +3,7 @@ import { type BehaviorRuntime, type BehaviorRuntimeBranchResult } from '~/types'
 import { type RunState } from '~/helpers/runner/runnerTypes'
 import { resolveValue } from '~/helpers/path/resolveValue'
 import { stopResult } from '~/helpers/runner/stopResult'
+import { protectedPickOptions } from '~/helpers/path/protectedPickOptions'
 
 type RuntimeBranches = {
   executeThen(): Promise<BehaviorRuntimeBranchResult>
@@ -29,6 +30,9 @@ export const createRuntime = <TContext, TPatch>(
       set(state.context as Record<string, unknown>, path, value)
     },
     data,
+    variables: {
+      get: (path: string) => pick(state.variables, path, protectedPickOptions),
+    },
     getData: (path) => {
       console.warn('runtime.getData() is deprecated; use runtime.data.get() instead')
       return data.get(path)

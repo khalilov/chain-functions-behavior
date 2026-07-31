@@ -4,6 +4,7 @@ import { pick, set } from 'objwalk'
 import { isPathReference } from '~/helpers/path/isPathReference'
 import { isValidPathReference } from '~/helpers/path/isValidPathReference'
 import { resolveValue } from '~/helpers/path/resolveValue'
+import { parseTemplate } from '~/helpers/path/parseTemplate'
 
 describe('path and object helpers', () => {
   it('gets nested values and array indexes through objwalk path syntax', () => {
@@ -66,5 +67,87 @@ describe('path and object helpers', () => {
       id: 'job-1',
       message: 'hello, world',
     })
+  })
+
+  it('preserves objwalk access semantics for existing runtime roots', () => {
+    const inherited = Object.create({ constructorValue: 7 }) as Record<string, unknown>
+    inherited.own = 1
+    const scope = {
+      context: inherited,
+      data: {},
+      input: {},
+      variables: {},
+    }
+
+    assert.equal(resolveValue('$context.constructorValue', scope), 7)
+    assert.equal(resolveValue('$context.constructor', scope), Object)
+    assert.equal(resolveValue('$context.own', scope), 1)
+  })
+
+  it('does not recursively reinterpret template substitutions', () => {
+    const scope = {
+      context: {},
+      data: { legacy: '${HOME}' },
+      input: {},
+      variables: { HOME: 'secret', MODERN: '{{ legacy }}' },
+    }
+
+    assert.equal(resolveValue({ $template: '{{ legacy }}' }, scope), '${HOME}')
+    assert.equal(resolveValue({ $template: '${MODERN}' }, scope), '{{ legacy }}')
+  })
+
+  it('parses escaped template delimiters and backslash parity', () => {
+    assert.deepEqual(parseTemplate('\\${NAME}'), {
+      ok: true,
+      parts: [{ type: 'literal', value: '${NAME}' }],
+    })
+    assert.deepEqual(parseTemplate('\\{{ user.name }}'), {
+      ok: true,
+      parts: [{ type: 'literal', value: '{{ user.name }}' }],
+    })
+    assert.deepEqual(parseTemplate('\\\\${NAME}'), {
+      ok: true,
+      parts: [
+        { type: 'literal', value: '\\' },
+        { type: 'variable', name: 'NAME' },
+      ],
+    })
+    assert.deepEqual(parseTemplate('\\\\\\${NAME}'), {
+      ok: true,
+      parts: [{ type: 'literal', value: '\\${NAME}' }],
+    })
+    assert.deepEqual(parseTemplate('${NAME} \\${NAME}'), {
+      ok: true,
+      parts: [
+        { type: 'variable', name: 'NAME' },
+        { type: 'literal', value: ' ${NAME}' },
+      ],
+    })
+    assert.deepEqual(parseTemplate('\\x'), {
+      ok: true,
+      parts: [{ type: 'literal', value: '\\x' }],
+    })
+    assert.deepEqual(parseTemplate('\\\\'), {
+      ok: true,
+      parts: [{ type: 'literal', value: '\\' }],
+    })
+    assert.deepEqual(parseTemplate(''), {
+      ok: true,
+      parts: [{ type: 'literal', value: '' }],
+    })
+    assert.deepEqual(parseTemplate('\\${A} ${B} \\{{ x }} {{ y }}'), {
+      ok: true,
+      parts: [
+        { type: 'literal', value: '${A} ' },
+        { type: 'variable', name: 'B' },
+        { type: 'literal', value: ' {{ x }} ' },
+        { type: 'data', path: 'y' },
+      ],
+    })
+    assert.deepEqual(parseTemplate('\\${BROKEN'), {
+      ok: true,
+      parts: [{ type: 'literal', value: '${BROKEN' }],
+    })
+    assert.deepEqual(parseTemplate('${BROKEN'), { ok: false })
   })
 })

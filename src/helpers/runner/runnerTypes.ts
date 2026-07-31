@@ -5,6 +5,7 @@ import {
   type BehaviorInput,
   type BehaviorRunnerOptions,
   type BehaviorTraceSink,
+  type BehaviorVariables,
 } from '~/types'
 import { type ActionsRegistry } from '~/registry/actions'
 import { type ConditionsRegistry } from '~/registry/conditions'
@@ -40,6 +41,8 @@ export type RunState<TContext, TPatch> = {
   sync: boolean
   signal: AbortSignal
   reportedErrors: BehaviorError[]
+  variables: BehaviorVariables
+  expressions: Record<string, import('~/types').BehaviorExpressionOperator>
   traceSink?: BehaviorTraceSink
 }
 

@@ -297,6 +297,9 @@ export type BehaviorRuntime = {
     get(path: string): unknown
     set(path: string, value: unknown): void
   }
+  variables?: {
+    get(path: string): unknown
+  }
   /** @deprecated Use `runtime.data.get(path)` instead. */
   getData(path: string): unknown
   /** @deprecated Use `runtime.data.set(path, value)` instead. */
@@ -311,6 +314,17 @@ export type BehaviorRuntime = {
   fail(reason?: string, data?: Record<string, unknown>): BehaviorActionFail
 }
 
+export type BehaviorVariableValue =
+  | string
+  | number
+  | boolean
+  | bigint
+  | null
+  | readonly BehaviorVariableValue[]
+  | { readonly [key: string]: BehaviorVariableValue }
+
+export type BehaviorVariables = Readonly<Record<string, BehaviorVariableValue>>
+
 export type BehaviorRunnerOptions<TContext, TPatch> = {
   maxStepCount?: number
   /** @deprecated Use `maxStepCount` instead. */
@@ -320,7 +334,11 @@ export type BehaviorRunnerOptions<TContext, TPatch> = {
   trace?: boolean | BehaviorTraceSink
   onError?: BehaviorErrorReporter<TContext, TPatch>
   mergeData?: (current: Record<string, unknown>, next: Record<string, unknown>) => Record<string, unknown>
+  variables?: BehaviorVariables
+  expressions?: Record<string, BehaviorExpressionOperator>
 }
+
+export type BehaviorExpressionOperator = (args: unknown[]) => unknown
 
 export type BehaviorRunOptions = {
   signal?: AbortSignal
@@ -353,6 +371,7 @@ export type BehaviorError = {
   fn?: string
   stage?: BehaviorErrorStage
   cause?: unknown
+  path?: string
 }
 
 export type BehaviorErrorStage = {
@@ -399,7 +418,7 @@ export type BehaviorConditionFn<TContext> = (
     context: TContext
     input: BehaviorInput
     data: Record<string, unknown>
-    runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'data' | 'getData'>
+    runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'data' | 'variables' | 'getData'>
   },
   ...conditionArgs: unknown[]
 ) => boolean

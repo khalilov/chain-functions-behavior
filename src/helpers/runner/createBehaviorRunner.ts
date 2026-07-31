@@ -21,6 +21,7 @@ import { resolveEntrypoint } from '~/helpers/runner/resolveEntrypoint'
 import { runnerLimitWarnings } from '~/helpers/validation/runnerLimitWarnings'
 import { type Normalized, type RunnerEnvironment, type RunState } from '~/helpers/runner/runnerTypes'
 import { validateBehaviorConfig } from '~/helpers/validation/validateBehaviorConfig'
+import { cloneRuntimeVariables } from '~/helpers/runner/cloneRuntimeVariables'
 
 export const createBehaviorRunner = <TContext, TPatch = unknown>(
   options: BehaviorRunnerOptions<TContext, TPatch> = {}
@@ -29,6 +30,7 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
   const conditionsRegistry = createConditionsRegistry<TContext>()
   const configRef: { current?: BehaviorConfig } = {}
   const mergeData = options.mergeData ?? ((current, next) => ({ ...current, ...next }))
+  const variables = cloneRuntimeVariables(options.variables ?? {})
   const environment: RunnerEnvironment<TContext, TPatch> = {
     actionsRegistry,
     conditionsRegistry,
@@ -82,6 +84,8 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
       sync,
       signal: runOptions.signal ?? new AbortController().signal,
       reportedErrors: [],
+      variables,
+      expressions: options.expressions ?? {},
       ...(traceSink ? { traceSink } : {}),
     }
     const reportError = (result: Normalized<TContext, TPatch>): void => {

@@ -1,44 +1,103 @@
 import { pick } from 'objwalk'
-import { type BehaviorInput } from '~/types'
+import { type BehaviorExpressionOperator, type BehaviorInput, type BehaviorVariables } from '~/types'
+import { childPath } from '~/helpers/path/childPath'
+import { createResolutionError } from '~/helpers/path/createResolutionError'
+import { evaluateExpression } from '~/helpers/path/evaluateExpression'
 import { pathReferenceRegex } from '~/helpers/path/pathReferenceRegex'
+import { protectedPickOptions } from '~/helpers/path/protectedPickOptions'
+import { parseTemplate } from '~/helpers/path/parseTemplate'
 
 export type ResolveScope<TContext> = {
   context: TContext
   data: Record<string, unknown>
   input: BehaviorInput
+  variables?: BehaviorVariables
+  expressions?: Record<string, BehaviorExpressionOperator>
+  strategy?: string
+  configPath?: string
 }
 
-export const resolveValue = <TContext>(value: unknown, scope: ResolveScope<TContext>): unknown => {
+export const resolveValue = <TContext>(
+  value: unknown,
+  scope: ResolveScope<TContext>,
+  path = scope.configPath ?? ''
+): unknown => {
   if (typeof value === 'string') {
     const match = value.match(pathReferenceRegex)
     if (!match) {
       return value
     }
-    const root = match[1] as 'context' | 'data' | 'input'
-    const path = match[2] ?? ''
-    const source = scope[root]
-    if (!path) {
+    const root = match[1] as 'context' | 'data' | 'input' | 'variables'
+    const nestedPath = match[2] ?? ''
+    if (root !== 'variables') {
+      const source = scope[root]
+      if (!nestedPath) {
+        return source
+      }
+      if (!source || typeof source !== 'object') {
+        return undefined
+      }
+      return pick(source as Record<string, unknown>, nestedPath)
+    }
+
+    const source = scope.variables ?? {}
+    if (!nestedPath) {
       return source
     }
-    if (!source || typeof source !== 'object') {
-      return undefined
+    const resolved = pick(source, nestedPath, protectedPickOptions)
+    if (resolved === undefined) {
+      throw createResolutionError('VARIABLE_NOT_FOUND', 'Variable reference was not found', scope, path)
     }
-    return pick(source as Record<string, unknown>, path)
+    return resolved
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => resolveValue(item, scope))
+    return value.map((item, index) => resolveValue(item, scope, childPath(path, index)))
   }
 
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
-    if (typeof record.$template === 'string') {
-      return record.$template.replace(/\{\{\s*([A-Za-z0-9_$.[\]-]+)\s*\}\}/g, (_, key) => {
-        const resolved = resolveValue(`$data.${key}`, scope)
-        return resolved == null ? '' : String(resolved)
+    if (Object.prototype.hasOwnProperty.call(record, '$expression')) {
+      if (!Array.isArray(record.$expression) || typeof record.$expression[0] !== 'string') {
+        throw createResolutionError('EXPRESSION_INVALID_ARGUMENT', 'Expression must contain an operator', scope, path)
+      }
+      const [operator, ...rawArgs] = record.$expression
+      const args = rawArgs.map((argument, index) =>
+        resolveValue(argument, scope, childPath(childPath(path, '$expression'), index + 1))
+      )
+      return evaluateExpression(operator, args, scope.expressions ?? {}, {
+        ...(scope.strategy ? { strategy: scope.strategy } : {}),
+        path,
       })
     }
-    return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, resolveValue(item, scope)]))
+    if (typeof record.$template === 'string') {
+      const parsed = parseTemplate(record.$template)
+      if (!parsed.ok) {
+        throw createResolutionError('TEMPLATE_INVALID', 'Template syntax is invalid', scope, path)
+      }
+      return parsed.parts
+        .map((part) => {
+          if (part.type === 'literal') {
+            return part.value
+          }
+          if (part.type === 'data') {
+            const resolved = pick(scope.data, part.path)
+            return resolved == null ? '' : String(resolved)
+          }
+          const resolved = pick(scope.variables ?? {}, part.name, protectedPickOptions)
+          if (resolved === undefined || resolved === null || (part.fallback !== undefined && resolved === '')) {
+            if (part.fallback !== undefined) {
+              return part.fallback
+            }
+            throw createResolutionError('VARIABLE_NOT_FOUND', 'Template variable was not found', scope, path)
+          }
+          return String(resolved)
+        })
+        .join('')
+    }
+    return Object.fromEntries(
+      Object.entries(record).map(([key, item]) => [key, resolveValue(item, scope, childPath(path, key))])
+    )
   }
 
   return value

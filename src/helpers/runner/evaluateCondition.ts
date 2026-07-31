@@ -7,12 +7,13 @@ import {
 } from '~/types'
 import { behaviorError } from '~/helpers/errors/behaviorError'
 import { resolveValue } from '~/helpers/path/resolveValue'
+import { ResolutionError } from '~/helpers/path/ResolutionError'
 
 type EvaluateConditionScope<TContext> = {
   context: TContext
   input: BehaviorInput
   data: Record<string, unknown>
-  runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'data' | 'getData'>
+  runtime: Pick<BehaviorRuntime, 'resolve' | 'get' | 'data' | 'variables' | 'getData'>
   strategy?: string
 }
 
@@ -65,6 +66,16 @@ export const evaluateCondition = <TContext>(
     }
   }
 
-  const args = rawArgs.map((arg) => resolveValue(arg, scope))
-  return { ok: true, matched: Boolean(condition(scope, ...args)) }
+  try {
+    const configPath = scope.strategy ? `strategies.${scope.strategy}.when` : 'when'
+    const args = rawArgs.map((arg, index) =>
+      resolveValue(arg, { ...scope, configPath: `${configPath}[${index + 1}]` })
+    )
+    return { ok: true, matched: Boolean(condition(scope, ...args)) }
+  } catch (cause) {
+    if (cause instanceof ResolutionError) {
+      return { ok: false, error: cause.behaviorError }
+    }
+    throw cause
+  }
 }

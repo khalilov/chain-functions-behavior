@@ -14,6 +14,9 @@ import { isPromiseLike } from '~/helpers/runner/isPromiseLike'
 import { pushTrace } from '~/helpers/runner/pushTrace'
 import { resolveValue } from '~/helpers/path/resolveValue'
 import { withErrorStage } from '~/helpers/errors/withErrorStage'
+import { ResolutionError } from '~/helpers/path/ResolutionError'
+import { redactVariableProps } from '~/helpers/trace/redactVariableProps'
+import { toRuntimeResult } from '~/helpers/runner/toRuntimeResult'
 import { type Normalized, type RunState, type RunnerEnvironment } from '~/helpers/runner/runnerTypes'
 
 export const executeStrategy = <TContext, TPatch>(
@@ -70,19 +73,34 @@ export const executeStrategy = <TContext, TPatch>(
     }
   }
 
-  const props = resolveValue({ ...(strategy.props ?? {}), ...extraProps }, state) as BehaviorProps
-  const toRuntimeResult = (result: Normalized<TContext, TPatch>) => {
-    if (result.status === 'failed') {
-      return { status: 'failed' as const, error: result.error }
+  const rawProps = { ...(strategy.props ?? {}), ...extraProps }
+  let props: BehaviorProps
+  try {
+    props = resolveValue(rawProps, {
+      ...state,
+      strategy: id,
+      configPath: `strategies.${id}.props`,
+    }) as BehaviorProps
+  } catch (cause) {
+    if (!(cause instanceof ResolutionError)) {
+      throw cause
     }
-    if (result.status === 'stopped') {
-      return { status: 'stopped' as const, ...('reason' in result && result.reason ? { reason: result.reason } : {}) }
-    }
-    if (result.status === 'skipped') {
-      return { status: 'skipped' as const, ...(result.reason ? { reason: result.reason } : {}) }
-    }
-    return { status: 'success' as const }
+    return handleFailure(
+      withErrorStage(cause.behaviorError, {
+        phase: 'action',
+        strategy: id,
+        fn: strategy.fn,
+        mode: strategy.mode,
+        depth,
+        step: state.steps + 1,
+      }),
+      strategy,
+      depth,
+      state,
+      environment
+    )
   }
+  const traceProps = redactVariableProps(rawProps, props) as BehaviorProps
   const runtime = createRuntime(state, {
     executeThen: async () => toRuntimeResult(await executeThen(strategy, depth, state, environment)),
     executeCatch: strategy.catch?.length
@@ -115,7 +133,7 @@ export const executeStrategy = <TContext, TPatch>(
     )
   }
   if (!condition.matched) {
-    pushTrace(state, traceStep, depth, id, strategy, 'skipped', props, dataBefore, startedAt)
+    pushTrace(state, traceStep, depth, id, strategy, 'skipped', traceProps, dataBefore, startedAt)
     return { status: 'skipped', reason: 'when condition did not match', patches: [], events: [] }
   }
 
@@ -125,12 +143,21 @@ export const executeStrategy = <TContext, TPatch>(
 
   const actionThrown = (cause: unknown) =>
     handleFailure(
-      behaviorError('ACTION_THROWN', `Action "${strategy.fn}" threw`, {
-        strategy: id,
-        fn: strategy.fn,
-        cause,
-        stage: { phase: 'action', strategy: id, fn: strategy.fn, mode: strategy.mode, depth, step: traceStep },
-      }),
+      cause instanceof ResolutionError
+        ? withErrorStage(cause.behaviorError, {
+            phase: 'action',
+            strategy: id,
+            fn: strategy.fn,
+            mode: strategy.mode,
+            depth,
+            step: traceStep,
+          })
+        : behaviorError('ACTION_THROWN', `Action "${strategy.fn}" threw`, {
+            strategy: id,
+            fn: strategy.fn,
+            cause,
+            stage: { phase: 'action', strategy: id, fn: strategy.fn, mode: strategy.mode, depth, step: traceStep },
+          }),
       strategy,
       depth,
       state,
@@ -151,11 +178,11 @@ export const executeStrategy = <TContext, TPatch>(
       }
       return raw
         .then((value) =>
-          afterAction(value, id, strategy, depth, state, props, dataBefore, traceStep, startedAt, environment)
+          afterAction(value, id, strategy, depth, state, traceProps, dataBefore, traceStep, startedAt, environment)
         )
         .catch(actionThrown)
     }
-    return afterAction(raw, id, strategy, depth, state, props, dataBefore, traceStep, startedAt, environment)
+    return afterAction(raw, id, strategy, depth, state, traceProps, dataBefore, traceStep, startedAt, environment)
   } catch (cause) {
     if (cause instanceof BehaviorSyncAsyncError) {
       throw cause

@@ -10,6 +10,7 @@ import {
   type BehaviorAction,
   type BehaviorConditionFn,
   type BehaviorRunResult,
+  type BehaviorRuntime,
 } from '~/index'
 
 type Ctx = {
@@ -17,6 +18,26 @@ type Ctx = {
 }
 
 describe('public contract', () => {
+  it('allows legacy runtime mocks without variables', () => {
+    const runtime = {
+      get: () => undefined,
+      set: () => undefined,
+      data: { get: () => undefined, set: () => undefined },
+      getData: () => undefined,
+      setData: () => undefined,
+      resolve: (value: unknown) => value,
+      signal: new AbortController().signal,
+      executeThen: async () => ({ status: 'success' as const }),
+      executeCatch: async () => undefined,
+      emit: () => undefined,
+      patch: () => undefined,
+      stop: () => ({ type: 'stop' as const }),
+      fail: () => ({ type: 'fail' as const }),
+    } satisfies BehaviorRuntime
+
+    assert.equal(runtime.get('missing'), undefined)
+  })
+
   it('exports the root api and public types used by consumers', async () => {
     const action: BehaviorAction<Ctx, string> = ({ context }) => ({ patch: String(context.count) })
     const condition: BehaviorConditionFn<Ctx> = ({ context }) => context.count > 0

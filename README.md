@@ -137,6 +137,27 @@ Chain behavior accepts multiple event sources without coupling actions to a tran
 
 DOM input is normalized to `{ type, value?, dataset, form? }`. For submit events, `preventDefault` defaults to `true`. On the server, DOM bindings are reported as inactive instead of failing behavior startup.
 
+## Runtime Variables And Expressions
+
+Host applications can pass execution-environment values through the runner options. CFB does not read `.env` or `process.env` itself.
+
+```ts
+const runner = createBehaviorRunner({
+  variables: {
+    API_BASE_URL: 'https://api.example.com',
+    HTTP_TIMEOUT: 5000,
+  },
+})
+```
+
+Configurations can read complete values with `$variables.HTTP_TIMEOUT`, interpolate strings with `$template`, and calculate values with `$expression`. Variables are snapshotted once when the runner is created and reused by its runs.
+
+Inside `$template`, prefix a delimiter with `\` to emit it literally: `\${NAME}` produces `${NAME}` and `\{{ data.path }}` produces `{{ data.path }}`. Backslash runs use parity: an odd count escapes the delimiter, while an even count emits half the backslashes and performs interpolation. `\\` produces one backslash, and unknown escapes such as `\x` remain unchanged.
+
+Runtime variables support defined primitive values, arrays, and plain objects only. `undefined`, mutable built-ins such as `Date`, `Map`, typed arrays, class instances, functions, symbols, and accessor properties are rejected with a `TypeError` during runner creation.
+
+The snapshot is deeply frozen. Objects and arrays obtained through `$variables`, `runtime.variables.get()`, templates, or expression arguments cannot change host-owned or runner-owned state. Mutation attempts throw a `TypeError` in strict mode, including ES modules; ordinary assignments may fail silently in non-strict JavaScript.
+
 ## Concurrency And Lifecycle
 
 Each binding supports `parallel`, `latest`, `queue`, and `drop` modes. A binding can derive a lane key from its payload, allowing unrelated entities to execute independently.
