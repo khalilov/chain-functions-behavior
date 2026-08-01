@@ -8,26 +8,9 @@ import {
   type BehaviorEventMap,
   type BehaviorEventName,
 } from '~/types'
-import { nanoid } from 'nanoid'
-
-const serializeError = (error: unknown): { error: string } => ({
-  error: error instanceof Error ? error.message : String(error),
-})
-
-const isBusEvent = (event: unknown): event is BehaviorBusEvent => {
-  if (!event || typeof event !== 'object') {
-    return false
-  }
-  const candidate = event as Record<string, unknown>
-  return (
-    typeof candidate.id === 'string' &&
-    typeof candidate.topic === 'string' &&
-    typeof candidate.occurredAt === 'number' &&
-    typeof candidate.serialized === 'string' &&
-    'parsed' in candidate &&
-    (candidate.origin === undefined || typeof candidate.origin === 'string')
-  )
-}
+import { createId } from '~/helpers/ids/createId'
+import { isBehaviorBusEvent } from '~/helpers/pubSub/isBehaviorBusEvent'
+import { serializeError } from '~/helpers/pubSub/serializeError'
 
 export const createPubSubBehavior = <TEvents extends object = BehaviorEventMap>(
   options: BehaviorBusOptions<TEvents> = {}
@@ -37,7 +20,7 @@ export const createPubSubBehavior = <TEvents extends object = BehaviorEventMap>(
   const dispatch = (event: unknown): BehaviorBusEvent | undefined => {
     let dispatchedEvent: BehaviorBusEvent | undefined
 
-    if (!isBusEvent(event)) {
+    if (!isBehaviorBusEvent(event)) {
       options.onError?.({
         type: 'serialization',
         topic: 'unknown' as BehaviorEventName<TEvents>,
@@ -106,7 +89,7 @@ export const createPubSubBehavior = <TEvents extends object = BehaviorEventMap>(
         throw new Error('Payload cannot be serialized')
       }
       event = {
-        id: nanoid(),
+        id: createId(),
         topic,
         occurredAt: Date.now(),
         ...(emitOptions.origin ? { origin: emitOptions.origin } : {}),
@@ -116,7 +99,7 @@ export const createPubSubBehavior = <TEvents extends object = BehaviorEventMap>(
     } catch (error) {
       const parsed = serializeError(error)
       event = {
-        id: nanoid(),
+        id: createId(),
         topic,
         occurredAt: Date.now(),
         ...(emitOptions.origin ? { origin: emitOptions.origin } : {}),

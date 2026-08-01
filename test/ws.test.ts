@@ -82,7 +82,7 @@ describe('behavior websocket bridge', () => {
     const outbound = bus.emit('order.updated', { orderId: 'updated-1' }, { origin: 'worker' })
 
     assert.deepEqual(received, ['created-1'])
-    assert.deepEqual(socket.sent, [outbound.serialized])
+    assert.deepEqual(socket.sent, [JSON.stringify(outbound)])
     ws.stop()
   })
 
@@ -111,5 +111,20 @@ describe('behavior websocket bridge', () => {
     socket.open()
     assert.equal(ws.status(), 'connected')
     ws.stop()
+  })
+
+  it('stops retrying after the configured maximum', () => {
+    const bus = createPubSubBehavior<Events>()
+    const ws = createBehaviorWs({
+      bus,
+      createSocket: () => {
+        throw new Error('offline')
+      },
+      retry: { maxAttempts: 0, jitter: false },
+    })
+
+    ws.start()
+
+    assert.equal(ws.status(), 'stopped')
   })
 })

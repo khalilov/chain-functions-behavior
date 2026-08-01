@@ -7,6 +7,7 @@ import {
   type BehaviorWsSocket,
   type BehaviorWsStatus,
 } from '~/types'
+import { getRetryDelay } from '~/helpers/retry/getRetryDelay'
 
 const openState = 1
 const maxSeenEvents = 1_000
@@ -51,12 +52,30 @@ export const createBehaviorWs = <TEvents extends object = BehaviorEventMap>(
     socket = undefined
   }
 
-  const getRetryDelay = (): number => {
-    const initialDelay = options.retry?.initialDelay ?? 500
-    const maxDelay = options.retry?.maxDelay ?? 10_000
-    const multiplier = options.retry?.multiplier ?? 2
-    const base = Math.min(initialDelay * multiplier ** retryAttempt, maxDelay)
-    return options.retry?.jitter === false ? base : Math.round(base * (0.5 + Math.random() * 0.5))
+  const scheduleRetry = (reason: string, error?: unknown): void => {
+    const maxAttempts = options.retry?.maxAttempts
+
+    if (maxAttempts !== undefined && retryAttempt >= maxAttempts) {
+      currentStatus = 'stopped'
+      emitDiagnostic('cfb.ws.disconnected', { reason: 'retry-limit-reached', attempt: retryAttempt })
+    } else {
+      const delay = getRetryDelay(retryAttempt, options.retry ?? {})
+      const attempt = retryAttempt + 1
+      const retry = (): void => {
+        retryTimer = undefined
+        connect()
+      }
+
+      currentStatus = 'retrying'
+      retryAttempt = attempt
+      retryTimer = setTimeout(retry, delay)
+      emitDiagnostic('cfb.ws.retrying', {
+        reason,
+        delay,
+        attempt,
+        ...(error === undefined ? {} : { error: String(error) }),
+      })
+    }
   }
 
   const connect = (): void => {
@@ -76,17 +95,7 @@ export const createBehaviorWs = <TEvents extends object = BehaviorEventMap>(
             clearSocket()
 
             if (started) {
-              const delay = getRetryDelay()
-              const attempt = retryAttempt + 1
-              const retry = (): void => {
-                retryTimer = undefined
-                connect()
-              }
-
-              currentStatus = 'retrying'
-              retryAttempt = attempt
-              retryTimer = setTimeout(retry, delay)
-              emitDiagnostic('cfb.ws.retrying', { reason, delay, attempt })
+              scheduleRetry(reason)
             }
           }
         }
@@ -124,17 +133,7 @@ export const createBehaviorWs = <TEvents extends object = BehaviorEventMap>(
           }
         })
       } catch (error) {
-        const delay = getRetryDelay()
-        const attempt = retryAttempt + 1
-        const retry = (): void => {
-          retryTimer = undefined
-          connect()
-        }
-
-        currentStatus = 'retrying'
-        retryAttempt = attempt
-        retryTimer = setTimeout(retry, delay)
-        emitDiagnostic('cfb.ws.retrying', { reason: 'socket-create-failed', delay, attempt, error: String(error) })
+        scheduleRetry('socket-create-failed', error)
       }
     }
   }
@@ -145,7 +144,7 @@ export const createBehaviorWs = <TEvents extends object = BehaviorEventMap>(
       for (const topic of outboundTopics) {
         const unsubscribe = options.bus.on(topic as BehaviorEventName<TEvents>, (event) => {
           if (!seenEventIds.delete(event.id) && event.origin !== options.origin && socket?.readyState === openState) {
-            socket.send(event.serialized)
+            socket.send(JSON.stringify(event))
           }
         })
         outboundUnsubscribers.add(unsubscribe)
