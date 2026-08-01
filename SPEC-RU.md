@@ -176,7 +176,7 @@ runner.registerCondition('eq', customEq)
 
 `core.set` записывает вложенное значение контекста через `runtime.set`. `core.setData` записывает временные данные цепочки через `runtime.data.set`.
 
-`core.fetch` использует нативный `fetch` с signal текущего запуска. Свойство `response` выбирает `json`, `text`, `blob`, `arrayBuffer` или `none`; успешный ответ нормализуется в `{ status, ok, headers, body }` и может быть записан по `dataPath` или `contextPath`. `acceptStatuses` переопределяет стандартную проверку успеха через `Response.ok`. `retry` принимает `initialDelay`, `maxDelay`, `multiplier`, `jitter` и `maxAttempts`; `retryStatuses` переопределяет стандартный набор повторяемых статусов. По умолчанию выполняются две повторные попытки для сетевых ошибок и статусов `408`, `425`, `429` и `5xx`. Ретраи предназначены для body, который можно безопасно повторно отправить.
+`core.fetch` использует нативный `fetch` с signal текущего запуска. Свойство `response` выбирает `json`, `text`, `blob`, `arrayBuffer` или `none`; успешный ответ нормализуется в `{ status, ok, headers, body }` и может быть записан по `dataPath` или `contextPath`. `acceptStatuses` переопределяет стандартную проверку успеха через `Response.ok`. `credentials` принимает `include`, `same-origin` или `omit` и передаётся в нативный `fetch`. CORS, preflight-запросы, правила SameSite cookie и политика cookie сервера остаются ответственностью браузера и сервера. `retry` принимает `initialDelay`, `maxDelay`, `multiplier`, `jitter` и `maxAttempts`; `retryStatuses` переопределяет стандартный набор повторяемых статусов. По умолчанию выполняются две повторные попытки для сетевых ошибок и статусов `408`, `425`, `429` и `5xx`. Ошибки разбора response body не повторяются. Отменённый запрос или retry возвращает `skip`. Ретраи предназначены для body, который можно безопасно повторно отправить.
 
 ## Встроенные условия
 
@@ -255,7 +255,7 @@ type BehaviorRuntime = {
 
 `runtime.getData` и `runtime.setData` сохранены как устаревшие алиасы для совместимости и при вызове выводят предупреждение в консоль.
 
-`runtime.variables.get` читает неизменяемые runtime-переменные. `runtime.resolve` разрешает ссылки `$context.*`, `$data.*`, `$input.*` и неизменяемые значения `$variables.*`. Он также рекурсивно вычисляет объекты `$expression` и `$template`, используя операторы выражений, зарегистрированные в опциях runner.
+`runtime.variables.get` читает неизменяемые runtime-переменные. `runtime.resolve` разрешает ссылки `$context.*`, `$data.*`, `$input.*` и неизменяемые значения `$variables.*`. Он также рекурсивно вычисляет объекты `$expression` и `$template`, используя операторы выражений, зарегистрированные в опциях runner. В `$template` для совместимости `{{ path }}` читает runtime data; `{{ data.path }}`, `{{ context.path }}` и `{{ input.path }}` явно выбирают источник.
 
 Чтение и запись путей во время выполнения реализованы непосредственно через `objwalk`.
 

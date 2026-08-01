@@ -176,7 +176,7 @@ Actions can execute their own configured branches through `runtime.executeThen()
 
 `core.set` writes a nested context value through `runtime.set`. `core.setData` writes temporary chain data through `runtime.data.set`.
 
-`core.fetch` uses native `fetch` with the run signal. Its `response` prop selects `json`, `text`, `blob`, `arrayBuffer`, or `none`; successful responses are normalized as `{ status, ok, headers, body }` and can be written to `dataPath` or `contextPath`. `acceptStatuses` overrides the default `Response.ok` success condition. `retry` accepts `initialDelay`, `maxDelay`, `multiplier`, `jitter`, and `maxAttempts`; `retryStatuses` overrides the default retryable statuses. The default performs two retries for network failures and statuses `408`, `425`, `429`, and `5xx`. Retries are intended for replayable request bodies.
+`core.fetch` uses native `fetch` with the run signal. Its `response` prop selects `json`, `text`, `blob`, `arrayBuffer`, or `none`; successful responses are normalized as `{ status, ok, headers, body }` and can be written to `dataPath` or `contextPath`. `acceptStatuses` overrides the default `Response.ok` success condition. `credentials` accepts `include`, `same-origin`, or `omit` and is forwarded to native `fetch`. CORS, preflight requests, SameSite cookie rules, and server cookie policy remain the responsibility of the browser and server. `retry` accepts `initialDelay`, `maxDelay`, `multiplier`, `jitter`, and `maxAttempts`; `retryStatuses` overrides the default retryable statuses. The default performs two retries for network failures and statuses `408`, `425`, `429`, and `5xx`. Response-body parsing failures do not retry. An aborted request or retry returns `skip`. Retries are intended for replayable request bodies.
 
 ## Built-In Conditions
 
@@ -255,7 +255,7 @@ type BehaviorRuntime = {
 
 `runtime.getData` and `runtime.setData` are deprecated compatibility aliases and emit a console warning when called.
 
-`runtime.variables.get` reads immutable runtime variables. `runtime.resolve` resolves `$context.*`, `$data.*`, `$input.*`, and immutable `$variables.*` values. It also evaluates `$expression` and `$template` objects recursively, using the expression operators registered in runner options.
+`runtime.variables.get` reads immutable runtime variables. `runtime.resolve` resolves `$context.*`, `$data.*`, `$input.*`, and immutable `$variables.*` values. It also evaluates `$expression` and `$template` objects recursively, using the expression operators registered in runner options. In `$template`, `{{ path }}` reads runtime data for compatibility; `{{ data.path }}`, `{{ context.path }}`, and `{{ input.path }}` select their source explicitly.
 
 Runtime path get/set is implemented directly through `objwalk`.
 

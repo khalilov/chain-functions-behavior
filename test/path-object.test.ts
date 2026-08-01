@@ -67,6 +67,10 @@ describe('path and object helpers', () => {
       id: 'job-1',
       message: 'hello, world',
     })
+    assert.equal(
+      resolveValue({ $template: '{{ context.user.name }}:{{ input.id }}:{{ data.greeting }}' }, scope),
+      'Ada:job-1:hello'
+    )
   })
 
   it('preserves objwalk access semantics for existing runtime roots', () => {

@@ -9,6 +9,7 @@ import { waitForRetry } from '~/helpers/retry/waitForRetry'
 
 const defaultMaxAttempts = 2
 const retryableStatuses = new Set([408, 425, 429])
+const credentialsValues = new Set<globalThis.RequestCredentials>(['include', 'same-origin', 'omit'])
 
 const responseReaders = {
   json: (response: Response) => response.json(),
@@ -27,6 +28,7 @@ export const coreFetch = async <TContext, TPatch>({
     acceptStatuses,
     body,
     contextPath,
+    credentials,
     dataPath,
     headers,
     method,
@@ -40,6 +42,7 @@ export const coreFetch = async <TContext, TPatch>({
   const maxAttempts = Math.max(0, Number(retry.maxAttempts ?? defaultMaxAttempts))
   const acceptedStatusSet = Array.isArray(acceptStatuses) ? new Set(acceptStatuses) : undefined
   const retryStatusSet = Array.isArray(retryStatuses) ? new Set(retryStatuses) : undefined
+  const requestCredentials = typeof credentials === 'string' ? credentials : undefined
 
   if (typeof url !== 'string' || !url) {
     return runtime.fail('core.fetch requires a non-empty url')
@@ -47,12 +50,19 @@ export const coreFetch = async <TContext, TPatch>({
   if (!Object.prototype.hasOwnProperty.call(responseReaders, responseType)) {
     return runtime.fail('core.fetch response must be json, text, blob, arrayBuffer, or none')
   }
+  if (
+    credentials !== undefined &&
+    (typeof credentials !== 'string' || !credentialsValues.has(credentials as RequestCredentials))
+  ) {
+    return runtime.fail('core.fetch credentials must be include, same-origin, or omit')
+  }
 
   for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
     try {
       const request: RequestInit = {
         signal,
         ...(typeof method === 'string' ? { method } : {}),
+        ...(requestCredentials ? { credentials: requestCredentials as RequestCredentials } : {}),
         ...(headers ? { headers: headers as HeadersInit } : {}),
         ...(body === undefined ? {} : { body: body as BodyInit | null }),
       }
@@ -60,7 +70,13 @@ export const coreFetch = async <TContext, TPatch>({
       const accepted = acceptedStatusSet?.has(response.status) ?? response.ok
 
       if (accepted) {
-        const responseBody = await responseReaders[responseType as BehaviorFetchResponseType](response)
+        let responseBody: unknown
+
+        try {
+          responseBody = await responseReaders[responseType as BehaviorFetchResponseType](response)
+        } catch (cause) {
+          return runtime.fail('Fetch response could not be parsed', { cause })
+        }
         const result = {
           status: response.status,
           ok: response.ok,
@@ -84,7 +100,7 @@ export const coreFetch = async <TContext, TPatch>({
       }
     } catch (cause) {
       if (signal.aborted) {
-        return runtime.fail('Fetch request was aborted')
+        return false
       }
       if (attempt === maxAttempts) {
         return runtime.fail('Fetch request failed', { cause })
@@ -94,9 +110,7 @@ export const coreFetch = async <TContext, TPatch>({
     try {
       await waitForRetry(getRetryDelay(attempt, retry), signal)
     } catch (cause) {
-      return signal.aborted
-        ? runtime.fail('Fetch request was aborted')
-        : runtime.fail('Fetch retry was interrupted', { cause })
+      return signal.aborted ? false : runtime.fail('Fetch retry was interrupted', { cause })
     }
   }
 }

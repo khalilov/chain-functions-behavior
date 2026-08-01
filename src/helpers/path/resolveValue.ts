@@ -86,7 +86,10 @@ export const resolveValue = <TContext>(
             return part.value
           }
           if (part.type === 'data') {
-            const resolved = pick(scope.data, part.path)
+            const scopedPath = part.path.match(/^(context|data|input)\.(.+)$/)
+            const source = scopedPath ? scope[scopedPath[1] as 'context' | 'data' | 'input'] : scope.data
+            const resolved = pick(source as Record<string, unknown>, scopedPath?.[2] ?? part.path)
+
             return resolved == null ? '' : String(resolved)
           }
           const resolved = pick(scope.variables ?? {}, part.name, protectedPickOptions)
