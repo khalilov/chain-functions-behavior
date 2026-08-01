@@ -36,10 +36,12 @@ export type RunState<TContext, TPatch> = {
   data: Record<string, unknown>
   patches: TPatch[]
   events: BehaviorEvent[]
-  steps: number
+  stepCounter: { current: number }
   startedAt: number
   sync: boolean
   signal: AbortSignal
+  abort(): void
+  closed: boolean
   reportedErrors: BehaviorError[]
   variables: BehaviorVariables
   expressions: Record<string, import('~/types').BehaviorExpressionOperator>

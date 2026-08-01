@@ -11,9 +11,11 @@ export const executeNext = <TContext, TPatch>(
   environment: RunnerEnvironment<TContext, TPatch>
 ): Normalized<TContext, TPatch> | Promise<Normalized<TContext, TPatch>> => {
   const id = typeof item === 'string' ? item : item.strategy
+
   if (typeof item !== 'string' && item.when) {
     const runtime = createRuntime(state)
     const condition = evaluateCondition(item.when, environment.conditionsRegistry, { ...state, runtime, strategy: id })
+
     if (!condition.ok) {
       return { status: 'failed', error: condition.error, patches: [], events: [] }
     }
@@ -27,5 +29,6 @@ export const executeNext = <TContext, TPatch>(
     }
   }
   const extraProps = typeof item === 'string' ? {} : (item.props ?? {})
+
   return executeStrategy(id, extraProps, depth, state, environment)
 }

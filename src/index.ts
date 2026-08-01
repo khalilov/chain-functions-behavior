@@ -1,4 +1,4 @@
-export { defineBehaviorConfig } from '~/config'
+export { defineBehaviorConfig } from '~/helpers/config/defineBehaviorConfig'
 export { createBehaviorRunner } from '~/runner'
 export { createMemoryTraceSink } from '~/trace'
 export { defineErrorReporter } from '~/errors'
@@ -6,6 +6,8 @@ export { createPubSubBehavior, PubSubBehavior } from '~/pubSub'
 export { createChainBehavior } from '~/chainBehavior'
 export { createBehaviorWs } from '~/ws'
 export { catchError } from '~/catchError'
+export { createActionsRegistry, type ActionsRegistry } from '~/registry/actions'
+export { createConditionsRegistry, type ConditionsRegistry } from '~/registry/conditions'
 export {
   type BehaviorAction,
   type BehaviorActionArgs,
@@ -43,6 +45,7 @@ export {
   type BehaviorEventMap,
   type BehaviorEventName,
   type BehaviorExpressionOperator,
+  type BehaviorFetchResponseType,
   type BehaviorInactiveBinding,
   type BehaviorInput,
   type BehaviorMode,
@@ -50,6 +53,7 @@ export {
   type BehaviorProps,
   type BehaviorQueueOverflow,
   type BehaviorRunOptions,
+  type BehaviorRetryOptions,
   type BehaviorRunResult,
   type BehaviorRunner,
   type BehaviorRunnerErrorEvent,

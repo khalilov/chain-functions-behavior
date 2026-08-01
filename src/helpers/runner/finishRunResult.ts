@@ -12,14 +12,17 @@ export const finishRunResult = <TContext, TPatch>(
     data: state.data,
     patches: state.patches,
     events: state.events,
-    steps: state.steps,
+    steps: state.stepCounter.current,
   }
+
   if (result.status === 'failed') {
     runResult.error = result.error
   }
   const entries = traceSink?.entries?.()
+
   if (entries) {
     runResult.trace = entries
   }
+
   return runResult
 }

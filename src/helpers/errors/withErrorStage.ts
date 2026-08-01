@@ -1,18 +1,18 @@
 import { type BehaviorError, type BehaviorErrorStage } from '~/types'
-
-const compactStage = (stage: BehaviorErrorStage): BehaviorErrorStage =>
-  Object.fromEntries(Object.entries(stage).filter(([, value]) => value !== undefined)) as BehaviorErrorStage
+import { compactErrorStage } from '~/helpers/errors/compactErrorStage'
 
 export const withErrorStage = (error: BehaviorError, stage: BehaviorErrorStage): BehaviorError => {
   const nextError: BehaviorError = {
     ...error,
-    stage: compactStage({
+    stage: compactErrorStage({
       ...stage,
       ...error.stage,
     }),
   }
-  const strategy = error.strategy ?? stage.strategy
-  const fn = error.fn ?? stage.fn
+  const { strategy: errorStrategy, fn: errorFn } = error
+  const { strategy: stageStrategy, fn: stageFn } = stage
+  const strategy = errorStrategy ?? stageStrategy
+  const fn = errorFn ?? stageFn
 
   if (strategy) {
     nextError.strategy = strategy

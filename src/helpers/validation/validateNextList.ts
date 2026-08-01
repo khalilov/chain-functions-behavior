@@ -1,10 +1,14 @@
 import { type BehaviorConfig, type BehaviorValidationIssue } from '~/types'
+import { validateCondition } from '~/helpers/validation/validateCondition'
+import { validateRefs } from '~/helpers/validation/validateRefs'
+import { type RegistryReader } from '~/helpers/validation/registryReader'
 
 export const validateNextList = (
   config: BehaviorConfig,
   list: unknown,
   path: string,
   strategy: string,
+  conditionsRegistry: RegistryReader,
   errors: BehaviorValidationIssue[]
 ): void => {
   if (list === undefined) {
@@ -15,7 +19,13 @@ export const validateNextList = (
     return
   }
   list.forEach((item, index) => {
-    const target = typeof item === 'string' ? item : (item as { strategy?: unknown })?.strategy
+    const target =
+      typeof item === 'string'
+        ? item
+        : item && typeof item === 'object'
+          ? (item as { strategy?: unknown }).strategy
+          : undefined
+
     if (typeof target !== 'string' || !config.strategies[target]) {
       errors.push({
         code: 'STRATEGY_NOT_FOUND',
@@ -23,6 +33,11 @@ export const validateNextList = (
         strategy,
         path: `${path}.${index}`,
       })
+    } else if (item && typeof item === 'object') {
+      const { props, when } = item as { props?: unknown; when?: unknown }
+
+      validateCondition(when, strategy, `${path}.${index}.when`, conditionsRegistry, errors)
+      validateRefs(props, strategy, `${path}.${index}.props`, errors)
     }
   })
 }

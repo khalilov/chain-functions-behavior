@@ -21,6 +21,7 @@ export const evaluateExpression = (
     const numbers = finiteNumbers(operator, args, 2, details)
     const a = numbers[0] as number
     const b = numbers[1] as number
+
     return a - b
   }
   if (operator === 'multiply') {
@@ -30,6 +31,7 @@ export const evaluateExpression = (
     const numbers = finiteNumbers(operator, args, 2, details)
     const a = numbers[0] as number
     const b = numbers[1] as number
+
     if (b === 0) {
       failExpression('EXPRESSION_DIVISION_BY_ZERO', `Expression "${operator}" cannot divide by zero`, details)
     }
@@ -47,9 +49,11 @@ export const evaluateExpression = (
     const value = numbers[0] as number
     const minimum = numbers[1] as number
     const maximum = numbers[2] as number
+
     if (minimum > maximum) {
       failExpression('EXPRESSION_INVALID_ARGUMENT', 'Expression "clamp" minimum exceeds maximum', details)
     }
+
     return Math.min(Math.max(value, minimum), maximum)
   }
   if (operator === 'at') {
@@ -58,13 +62,20 @@ export const evaluateExpression = (
     }
     const target = args[0]
     const index = args[1]
+
     if (!Array.isArray(target) || typeof index !== 'number' || !Number.isInteger(index) || index < 0) {
-      failExpression('EXPRESSION_INVALID_ARGUMENT', 'Expression "at" requires an array and a non-negative integer', details)
+      failExpression(
+        'EXPRESSION_INVALID_ARGUMENT',
+        'Expression "at" requires an array and a non-negative integer',
+        details
+      )
     }
     const resolved = pick(target as unknown[], String(index), protectedPickOptions)
+
     if (resolved === undefined) {
       failExpression('EXPRESSION_PATH_NOT_FOUND', 'Expression array index was not found', details)
     }
+
     return resolved
   }
   if (operator === 'property') {
@@ -78,6 +89,7 @@ export const evaluateExpression = (
       failExpression('EXPRESSION_INVALID_ARGUMENT', 'Expression "get" requires an object and a path string', details)
     }
     const resolved = pick(args[0] as Record<string, unknown>, args[1] as string, protectedPickOptions)
+
     if (resolved === undefined) {
       return failExpression('EXPRESSION_PATH_NOT_FOUND', 'Expression path was not found', details)
     }
@@ -85,7 +97,11 @@ export const evaluateExpression = (
   }
   if (operator === 'concat') {
     if (args.some((value) => !['string', 'number', 'boolean', 'bigint'].includes(typeof value))) {
-      failExpression('EXPRESSION_INVALID_ARGUMENT', 'Expression "concat" requires primitive string-compatible arguments', details)
+      failExpression(
+        'EXPRESSION_INVALID_ARGUMENT',
+        'Expression "concat" requires primitive string-compatible arguments',
+        details
+      )
     }
     return args.map(String).join('')
   }
@@ -94,6 +110,7 @@ export const evaluateExpression = (
     failExpression('EXPRESSION_OPERATOR_NOT_FOUND', `Expression operator "${operator}" is not registered`, details)
   }
   const customOperator = custom[operator] as BehaviorExpressionOperator
+
   try {
     return customOperator(args)
   } catch (cause) {

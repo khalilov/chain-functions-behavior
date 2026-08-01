@@ -8,6 +8,7 @@ export const finiteNumbers = (
   details: ExpressionDetails
 ): number[] => {
   const [minimum, maximum] = typeof count === 'number' ? [count, count] : count
+
   if (
     args.length < minimum ||
     args.length > maximum ||
@@ -15,5 +16,6 @@ export const finiteNumbers = (
   ) {
     failExpression('EXPRESSION_INVALID_ARGUMENT', `Expression "${operator}" requires finite number arguments`, details)
   }
+
   return args as number[]
 }

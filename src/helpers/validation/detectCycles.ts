@@ -1,4 +1,5 @@
 import { type BehaviorConfig, type BehaviorValidationIssue } from '~/types'
+import { getNextTarget } from '~/helpers/validation/getNextTarget'
 
 export const detectCycles = (
   config: BehaviorConfig,
@@ -24,10 +25,15 @@ export const detectCycles = (
       return false
     }
     visiting.add(id)
-    for (const next of config.strategies[id]?.then ?? []) {
-      const target = typeof next === 'string' ? next : next.strategy
-      if (config.strategies[target]) {
-        visit(target, [...path, id])
+    for (const branch of ['then', 'catch'] as const) {
+      const nextItems = config.strategies[id]?.[branch]
+
+      for (const next of Array.isArray(nextItems) ? nextItems : []) {
+        const target = getNextTarget(next)
+
+        if (target && config.strategies[target]) {
+          visit(target, [...path, id])
+        }
       }
     }
     visiting.delete(id)

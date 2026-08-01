@@ -50,17 +50,10 @@ export const afterAction = <TContext, TPatch>(
   )
 
   if (result.status === 'failed') {
-    return result.handled
-      ? result
-      : handleFailure(result.error, strategy, depth, state, environment)
+    return result.handled ? result : handleFailure(result.error, strategy, depth, state, environment)
   }
 
-  if (
-    result.status === 'skipped' ||
-    result.status === 'stopped' ||
-    strategy.terminal ||
-    result.continue === false
-  ) {
+  if (result.status === 'skipped' || result.status === 'stopped' || strategy.terminal || result.continue === false) {
     return result
   }
 

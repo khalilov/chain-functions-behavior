@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it, vi } from 'vitest'
-import { createBehaviorRunner, defineBehaviorConfig } from '~/index'
+import { createBehaviorRunner } from '~/index'
 
 type Ctx = {
   worker?: { state?: string; queueSize?: number }
@@ -17,15 +17,13 @@ describe('behavior runner', () => {
       a: () => ({ patch: 'a' }),
       b: () => ({ patch: 'b' }),
     })
-    runner.loadConfig(
-      defineBehaviorConfig({
-        strategies: {
-          root: { fn: 'core.sequence', mode: 'sequence', then: ['sa', 'sb'] },
-          sa: { fn: 'a' },
-          sb: { fn: 'b' },
-        },
-      })
-    )
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.sequence', mode: 'sequence', then: ['sa', 'sb'] },
+        sa: { fn: 'a' },
+        sb: { fn: 'b' },
+      },
+    })
 
     const result = await runner.run('root', {})
     assert.equal(result.status, 'success')
@@ -68,6 +66,29 @@ describe('behavior runner', () => {
     assert.deepEqual(result.patches, ['recovered'])
   })
 
+  it('marks a failed recovery branch with the catch phase', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    runner.registerActions({
+      boom: () => {
+        throw new Error('boom')
+      },
+      recoveryFails: () => {
+        throw new Error('recovery failed')
+      },
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'boom', catch: ['recover'] },
+        recover: { fn: 'recoveryFails' },
+      },
+    })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.status, 'failed')
+    assert.equal(result.error?.stage?.phase, 'catch')
+  })
+
   it('reports missing action and missing strategy', async () => {
     const runner = createBehaviorRunner<Ctx>()
     runner.loadConfig({ strategies: { root: { fn: 'missing' } } })
@@ -104,6 +125,18 @@ describe('behavior runner', () => {
     const runner = createBehaviorRunner<Ctx>()
     runner.loadConfig({ strategies: { root: { fn: 'core.delay', props: { ms: 0 } } } })
     assert.throws(() => runner.runSync('root', {}), /async action|Promise/)
+  })
+
+  it('core.delay settles promptly when the run is aborted', async () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const controller = new AbortController()
+    const startedAt = Date.now()
+
+    runner.loadConfig({ strategies: { root: { fn: 'core.delay', props: { ms: 1_000 } } } })
+    setTimeout(() => controller.abort(), 10)
+    await runner.run('root', {}, {}, { signal: controller.signal })
+
+    assert.equal(Date.now() - startedAt < 100, true)
   })
 
   it('core.loop executes then on every interval until aborted', async () => {
@@ -236,11 +269,11 @@ describe('behavior runner', () => {
       })
 
       const resultPromise = runner.run('root', {})
-      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(999)
       const result = await resultPromise
 
       assert.equal(result.status, 'success')
-      assert.equal(calls, 1000)
+      assert.equal(calls, 999)
     } finally {
       vi.useRealTimers()
     }
@@ -269,11 +302,11 @@ describe('behavior runner', () => {
       })
 
       const resultPromise = runner.run('root', {})
-      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(999)
       const result = await resultPromise
 
       assert.equal(result.status, 'success')
-      assert.equal(calls, 1000)
+      assert.equal(calls, 999)
     } finally {
       vi.useRealTimers()
     }
@@ -339,6 +372,23 @@ describe('behavior runner', () => {
     assert.equal(result.error?.code, 'MAX_STEPS')
   })
 
+  it('shares maxStepCount across parallel branches', async () => {
+    const runner = createBehaviorRunner<Ctx>({ maxStepCount: 2 })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.parallel', mode: 'parallel', then: ['first', 'second'] },
+        first: { fn: 'core.noop' },
+        second: { fn: 'core.noop' },
+      },
+    })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.status, 'failed')
+    assert.equal(result.error?.code, 'MAX_STEPS')
+    assert.equal(result.steps, 2)
+  })
+
   it('trace contains strategy props status and duration', async () => {
     const runner = createBehaviorRunner<Ctx>({ trace: true })
     runner.loadConfig({ strategies: { root: { fn: 'core.noop', props: { x: 1 } } } })
@@ -372,6 +422,107 @@ describe('behavior runner', () => {
     })
     const result = await runner.run('root', {})
     assert.deepEqual(result.patches, ['slow', 'fast'])
+  })
+
+  it('parallel isolates nested runtime data and accepts service context values', async () => {
+    const service = () => undefined
+    const runner = createBehaviorRunner<{ service: () => void }, string>()
+    runner.registerActions({
+      prepare: ({ runtime }) => runtime.data.set('shared', { value: 'initial' }),
+      write: ({ runtime }) => runtime.data.set('shared.value', 'changed'),
+      read: ({ runtime }) => ({ patch: String(runtime.data.get('shared.value') ?? 'initial') }),
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.sequence', then: ['prepare', 'parallel'] },
+        prepare: { fn: 'prepare' },
+        parallel: { fn: 'core.parallel', mode: 'parallel', then: ['write', 'read'] },
+        write: { fn: 'write' },
+        read: { fn: 'read' },
+      },
+    })
+
+    const result = await runner.run('root', { service })
+
+    assert.equal(result.status, 'success')
+    assert.deepEqual(result.patches, ['initial'])
+  })
+
+  it('core.fetch retries HTTP failures and stores a parsed response', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'order-1' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const runner = createBehaviorRunner<Ctx>()
+    runner.loadConfig({
+      strategies: {
+        root: {
+          fn: 'core.fetch',
+          props: {
+            url: 'https://example.test/orders/1',
+            response: 'json',
+            dataPath: 'order',
+            retry: { initialDelay: 0, jitter: false },
+          },
+        },
+      },
+    })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.status, 'success')
+    assert.equal(fetchMock.mock.calls.length, 2)
+    assert.deepEqual(result.data, {
+      order: {
+        status: 200,
+        ok: true,
+        headers: { 'content-type': 'text/plain;charset=UTF-8' },
+        body: { id: 'order-1' },
+      },
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('core.fetch reads text and blob responses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('ready', { status: 200 }))
+      .mockResolvedValueOnce(new Response(new Blob(['image'], { type: 'image/png' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const runner = createBehaviorRunner<Ctx>()
+    runner.loadConfig({
+      strategies: {
+        text: { fn: 'core.fetch', props: { url: 'https://example.test/status', response: 'text', dataPath: 'text' } },
+        blob: { fn: 'core.fetch', props: { url: 'https://example.test/image', response: 'blob', dataPath: 'blob' } },
+      },
+    })
+
+    const textResult = await runner.run('text', {})
+    const blobResult = await runner.run('blob', {})
+
+    assert.equal((textResult.data.text as { body: unknown }).body, 'ready')
+    assert.equal((blobResult.data.blob as { body: unknown }).body instanceof Blob, true)
+    vi.unstubAllGlobals()
+  })
+
+  it('isolates context mutations in parallel branches', async () => {
+    const runner = createBehaviorRunner<{ values: Record<string, boolean> }>()
+    runner.registerActions({
+      first: ({ runtime }) => runtime.set('values.first', true),
+      second: ({ runtime }) => runtime.set('values.second', true),
+    })
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'core.parallel', mode: 'parallel', then: ['first', 'second'] },
+        first: { fn: 'first' },
+        second: { fn: 'second' },
+      },
+    })
+
+    const result = await runner.run('root', { values: {} })
+
+    assert.deepEqual(result.context, { values: {} })
   })
 
   it('ui flow returns events', async () => {

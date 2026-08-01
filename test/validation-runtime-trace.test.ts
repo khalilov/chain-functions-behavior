@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, expect, it, vi } from 'vitest'
-import { createBehaviorRunner, createMemoryTraceSink } from '~/index'
+import { createBehaviorRunner, createMemoryTraceSink, type BehaviorConfig } from '~/index'
 import { createRuntime } from '~/helpers/runner/createRuntime'
 import { type RunState } from '~/helpers/runner/runnerTypes'
 import { type BehaviorTraceEntry } from '~/types'
 
 type Ctx = {
+  seen?: boolean
   user?: {
     name?: string
     profile?: {
@@ -31,6 +32,14 @@ describe('validation', () => {
 
     assert.equal(result.ok, false)
     assert.deepEqual(new Set(result.errors.map((error) => error.code)), new Set(['FN_MISSING', 'MODE_INVALID']))
+
+    const missingStrategies = runner.validateConfig({} as BehaviorConfig)
+
+    assert.equal(missingStrategies.ok, false)
+    assert.deepEqual(
+      missingStrategies.errors.map((error) => error.code),
+      ['CONFIG_INVALID']
+    )
   })
 
   it('reports missing then, catch and entrypoint targets', () => {
@@ -88,6 +97,21 @@ describe('validation', () => {
     )
   })
 
+  it('detects cycles through catch branches', () => {
+    const runner = createBehaviorRunner<Ctx>()
+    const result = runner.validateConfig({
+      strategies: {
+        root: { fn: 'core.noop', catch: ['recover'] },
+        recover: { fn: 'core.noop', catch: ['root'] },
+      },
+    })
+
+    assert.equal(
+      result.errors.some((error) => error.code === 'CYCLE_DETECTED'),
+      true
+    )
+  })
+
   it('warns when runner safety limits are disabled', () => {
     const runner = createBehaviorRunner<Ctx>({ maxStepCount: -1, maxDepth: -1 })
     const result = runner.validateConfig({
@@ -123,8 +147,14 @@ describe('validation', () => {
       },
     })
 
-    assert.equal(direct.errors.some((error) => error.code === 'NESTED_LOOP'), true)
-    assert.equal(transitive.errors.some((error) => error.code === 'NESTED_LOOP'), true)
+    assert.equal(
+      direct.errors.some((error) => error.code === 'NESTED_LOOP'),
+      true
+    )
+    assert.equal(
+      transitive.errors.some((error) => error.code === 'NESTED_LOOP'),
+      true
+    )
   })
 
   it('allows sibling loops in parallel branches', () => {
@@ -140,7 +170,10 @@ describe('validation', () => {
     })
 
     assert.equal(result.ok, true)
-    assert.equal(result.errors.some((error) => error.code === 'NESTED_LOOP'), false)
+    assert.equal(
+      result.errors.some((error) => error.code === 'NESTED_LOOP'),
+      false
+    )
   })
 })
 
@@ -152,11 +185,15 @@ describe('runtime helpers', () => {
       data: {},
       patches: [],
       events: [],
-      steps: 0,
+      stepCounter: { current: 0 },
       startedAt: Date.now(),
       sync: false,
       signal: new AbortController().signal,
+      abort: () => undefined,
+      closed: false,
       reportedErrors: [],
+      variables: {},
+      expressions: {},
     }
     const runtime = createRuntime(state)
 
@@ -186,11 +223,15 @@ describe('runtime helpers', () => {
       data: {},
       patches: [],
       events: [],
-      steps: 0,
+      stepCounter: { current: 0 },
       startedAt: Date.now(),
       sync: false,
       signal: new AbortController().signal,
+      abort: () => undefined,
+      closed: false,
       reportedErrors: [],
+      variables: {},
+      expressions: {},
     }
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const runtime = createRuntime(state)
@@ -277,7 +318,7 @@ describe('trace and safety limits', () => {
     assert.equal(sink.entries?.().length, 1)
   })
 
-  it('returns limit errors for maxDepth and timeoutMs', async () => {
+  it('returns limit errors for maxDepth and timeout', async () => {
     const depthRunner = createBehaviorRunner<Ctx>({ maxDepth: 0 })
     depthRunner.loadConfig({
       strategies: {
@@ -288,18 +329,65 @@ describe('trace and safety limits', () => {
 
     assert.equal((await depthRunner.run('root', {})).error?.code, 'MAX_DEPTH')
 
-    const timeoutRunner = createBehaviorRunner<Ctx>({ timeoutMs: 1 })
+    const timeoutRunner = createBehaviorRunner<Ctx>({ timeout: 1 })
     timeoutRunner.registerAction('slow', async () => {
       await new Promise((resolve) => setTimeout(resolve, 5))
     })
     timeoutRunner.loadConfig({
       strategies: {
-        root: { fn: 'slow', then: ['next'] },
-        next: { fn: 'core.noop' },
+        root: { fn: 'slow' },
       },
     })
 
-    assert.equal((await timeoutRunner.run('root', {})).error?.code, 'TIMEOUT')
+    const timeoutResult = await timeoutRunner.run('root', {})
+
+    assert.equal(timeoutResult.error?.code, 'TIMEOUT')
+  })
+
+  it('keeps timeoutMs as a deprecated fallback', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const runner = createBehaviorRunner<Ctx>({ timeoutMs: 1 })
+    runner.registerAction('slow', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+    runner.loadConfig({ strategies: { root: { fn: 'slow' } } })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.error?.code, 'TIMEOUT')
+    expect(warn).toHaveBeenCalledWith(
+      'timeoutMs is deprecated; use timeout. It will be removed in a future major release.'
+    )
+    warn.mockRestore()
+  })
+
+  it('aborts timed-out actions and ignores their late runtime mutations', async () => {
+    const runner = createBehaviorRunner<Ctx, string>({ timeout: 1 })
+    let aborted = false
+    runner.registerAction(
+      'slow',
+      ({ runtime, signal }) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              aborted = true
+              runtime.data.set('late', true)
+              runtime.patch('late')
+              resolve()
+            },
+            { once: true }
+          )
+        })
+    )
+    runner.loadConfig({ strategies: { root: { fn: 'slow', then: ['next'] }, next: { fn: 'core.patch' } } })
+
+    const result = await runner.run('root', {})
+
+    assert.equal(result.error?.code, 'TIMEOUT')
+    assert.equal(aborted, true)
+    assert.deepEqual(result.data, {})
+    assert.deepEqual(result.patches, [])
   })
 
   it('allows step-count and depth checks to be disabled', async () => {

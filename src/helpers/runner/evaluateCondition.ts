@@ -68,9 +68,7 @@ export const evaluateCondition = <TContext>(
 
   try {
     const configPath = scope.strategy ? `strategies.${scope.strategy}.when` : 'when'
-    const args = rawArgs.map((arg, index) =>
-      resolveValue(arg, { ...scope, configPath: `${configPath}[${index + 1}]` })
-    )
+    const args = rawArgs.map((arg, index) => resolveValue(arg, { ...scope, configPath: `${configPath}[${index + 1}]` }))
     return { ok: true, matched: Boolean(condition(scope, ...args)) }
   } catch (cause) {
     if (cause instanceof ResolutionError) {

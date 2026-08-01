@@ -5,8 +5,10 @@ import { createBuiltinActions } from '~/builtins/actions'
 import { createBuiltinConditions } from '~/builtins/conditions'
 import {
   createBehaviorRunner,
-  createMemoryTraceSink,
   defineBehaviorConfig,
+  createActionsRegistry,
+  createConditionsRegistry,
+  createMemoryTraceSink,
   type BehaviorAction,
   type BehaviorConditionFn,
   type BehaviorRunResult,
@@ -20,7 +22,7 @@ type Ctx = {
 describe('public contract', () => {
   it('allows legacy runtime mocks without variables', () => {
     const runtime = {
-      get: () => undefined,
+      get: (_path: string) => undefined,
       set: () => undefined,
       data: { get: () => undefined, set: () => undefined },
       getData: () => undefined,
@@ -42,20 +44,22 @@ describe('public contract', () => {
     const action: BehaviorAction<Ctx, string> = ({ context }) => ({ patch: String(context.count) })
     const condition: BehaviorConditionFn<Ctx> = ({ context }) => context.count > 0
     const runner = createBehaviorRunner<Ctx, string>({ trace: createMemoryTraceSink() })
+    const config = { strategies: {} }
 
     runner.registerAction('custom.patch', action)
     runner.registerCondition('custom.allowed', condition)
-    runner.loadConfig(
-      defineBehaviorConfig({
-        strategies: {
-          root: { fn: 'custom.patch', when: ['custom.allowed'] },
-        },
-      })
-    )
+    runner.loadConfig({
+      strategies: {
+        root: { fn: 'custom.patch', when: ['custom.allowed'] },
+      },
+    })
 
     const result: BehaviorRunResult<Ctx, string> = await runner.run('root', { count: 2 })
 
     assert.deepEqual(result.patches, ['2'])
+    assert.equal(createActionsRegistry<Ctx, string>().has('core.noop'), true)
+    assert.equal(createConditionsRegistry<Ctx>().has('eq'), true)
+    assert.equal(defineBehaviorConfig(config), config)
   })
 
   it('keeps spec built-in action names synchronized with implementation', async () => {

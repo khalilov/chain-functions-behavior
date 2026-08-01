@@ -29,6 +29,7 @@ export const resolveValue = <TContext>(
     }
     const root = match[1] as 'context' | 'data' | 'input' | 'variables'
     const nestedPath = match[2] ?? ''
+
     if (root !== 'variables') {
       const source = scope[root]
       if (!nestedPath) {
@@ -41,6 +42,7 @@ export const resolveValue = <TContext>(
     }
 
     const source = scope.variables ?? {}
+
     if (!nestedPath) {
       return source
     }
@@ -57,6 +59,7 @@ export const resolveValue = <TContext>(
 
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
+
     if (Object.prototype.hasOwnProperty.call(record, '$expression')) {
       if (!Array.isArray(record.$expression) || typeof record.$expression[0] !== 'string') {
         throw createResolutionError('EXPRESSION_INVALID_ARGUMENT', 'Expression must contain an operator', scope, path)
@@ -65,6 +68,7 @@ export const resolveValue = <TContext>(
       const args = rawArgs.map((argument, index) =>
         resolveValue(argument, scope, childPath(childPath(path, '$expression'), index + 1))
       )
+
       return evaluateExpression(operator, args, scope.expressions ?? {}, {
         ...(scope.strategy ? { strategy: scope.strategy } : {}),
         path,
@@ -72,6 +76,7 @@ export const resolveValue = <TContext>(
     }
     if (typeof record.$template === 'string') {
       const parsed = parseTemplate(record.$template)
+
       if (!parsed.ok) {
         throw createResolutionError('TEMPLATE_INVALID', 'Template syntax is invalid', scope, path)
       }

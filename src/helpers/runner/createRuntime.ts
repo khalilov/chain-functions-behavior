@@ -20,14 +20,18 @@ export const createRuntime = <TContext, TPatch>(
   const data = {
     get: (path: string) => pick(state.data, path),
     set: (path: string, value: unknown) => {
-      set(state.data, path, value)
+      if (!state.closed) {
+        set(state.data, path, value)
+      }
     },
   }
 
   return {
     get: (path) => pick(state.context as Record<string, unknown>, path),
     set: (path, value) => {
-      set(state.context as Record<string, unknown>, path, value)
+      if (!state.closed) {
+        set(state.context as Record<string, unknown>, path, value)
+      }
     },
     data,
     variables: {
@@ -43,10 +47,19 @@ export const createRuntime = <TContext, TPatch>(
     },
     resolve: (value) => resolveValue(value, state),
     signal: state.signal,
-    executeThen: branches.executeThen,
-    executeCatch: branches.executeCatch,
-    emit: (event) => state.events.push(event),
-    patch: (patch) => state.patches.push(patch as TPatch),
+    executeThen: async () =>
+      state.closed ? { status: 'stopped', reason: 'Run is already finished' } : branches.executeThen(),
+    executeCatch: async () => (state.closed ? undefined : branches.executeCatch()),
+    emit: (event) => {
+      if (!state.closed) {
+        state.events.push(event)
+      }
+    },
+    patch: (patch) => {
+      if (!state.closed) {
+        state.patches.push(patch as TPatch)
+      }
+    },
     stop: (reason) => stopResult(reason),
     fail: (reason, failureData) => ({
       type: 'fail',

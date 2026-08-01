@@ -22,6 +22,7 @@ import { runnerLimitWarnings } from '~/helpers/validation/runnerLimitWarnings'
 import { type Normalized, type RunnerEnvironment, type RunState } from '~/helpers/runner/runnerTypes'
 import { validateBehaviorConfig } from '~/helpers/validation/validateBehaviorConfig'
 import { cloneRuntimeVariables } from '~/helpers/runner/cloneRuntimeVariables'
+import { createRunCancellation } from '~/helpers/runner/createRunCancellation'
 
 export const createBehaviorRunner = <TContext, TPatch = unknown>(
   options: BehaviorRunnerOptions<TContext, TPatch> = {}
@@ -29,13 +30,20 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
   const actionsRegistry = createActionsRegistry<TContext, TPatch>()
   const conditionsRegistry = createConditionsRegistry<TContext>()
   const configRef: { current?: BehaviorConfig } = {}
+  const timeout = options.timeout ?? options.timeoutMs
+  const runnerOptions = timeout === undefined ? options : { ...options, timeout }
   const mergeData = options.mergeData ?? ((current, next) => ({ ...current, ...next }))
   const variables = cloneRuntimeVariables(options.variables ?? {})
+
+  if (options.timeoutMs !== undefined) {
+    console.warn('timeoutMs is deprecated; use timeout. It will be removed in a future major release.')
+  }
+
   const environment: RunnerEnvironment<TContext, TPatch> = {
     actionsRegistry,
     conditionsRegistry,
     configRef,
-    options,
+    options: runnerOptions,
     mergeData,
   }
 
@@ -57,7 +65,7 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
 
   const validateConfig = (target = configRef.current): BehaviorValidationResult => {
     const result = validateBehaviorConfig(target, actionsRegistry, conditionsRegistry)
-    return { ...result, warnings: [...result.warnings, ...runnerLimitWarnings(options)] }
+    return { ...result, warnings: [...result.warnings, ...runnerLimitWarnings(runnerOptions)] }
   }
 
   const loadConfig = (nextConfig: BehaviorConfig): BehaviorValidationResult => {
@@ -73,21 +81,25 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
     runOptions: BehaviorRunOptions
   ): BehaviorRunResult<TContext, TPatch> | Promise<BehaviorRunResult<TContext, TPatch>> => {
     const traceSink = options.trace === true ? createMemoryTraceSink() : options.trace || undefined
+    const cancellation = createRunCancellation(runOptions.signal)
     const state: RunState<TContext, TPatch> = {
       context,
       input,
       data: {},
       patches: [],
       events: [],
-      steps: 0,
+      stepCounter: { current: 0 },
       startedAt: Date.now(),
       sync,
-      signal: runOptions.signal ?? new AbortController().signal,
+      signal: cancellation.controller.signal,
+      abort: () => cancellation.controller.abort(),
+      closed: false,
       reportedErrors: [],
       variables,
       expressions: options.expressions ?? {},
       ...(traceSink ? { traceSink } : {}),
     }
+
     const reportError = (result: Normalized<TContext, TPatch>): void => {
       if (result.status !== 'failed' || state.reportedErrors.includes(result.error)) {
         return
@@ -103,9 +115,14 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
         ...(traceSink?.entries ? { trace: traceSink.entries() } : {}),
       })
     }
-    const finish = (result: Normalized<TContext, TPatch>): BehaviorRunResult<TContext, TPatch> =>
-      finishRunResult(result, state, traceSink || undefined)
+    const finish = (result: Normalized<TContext, TPatch>): BehaviorRunResult<TContext, TPatch> => {
+      state.closed = true
+      cancellation.dispose()
+
+      return finishRunResult(result, state, traceSink || undefined)
+    }
     const start = resolveEntrypoint(entrypoint, environment)
+
     if ('error' in start) {
       const result: Normalized<TContext, TPatch> = { status: 'failed', error: start.error, patches: [], events: [] }
       reportError(result)
@@ -117,6 +134,7 @@ export const createBehaviorRunner = <TContext, TPatch = unknown>(
       reportError(result)
       return finish(result)
     }
+
     return isPromiseLike(executed) ? executed.then(done) : done(executed)
   }
 

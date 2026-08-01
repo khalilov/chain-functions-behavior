@@ -22,8 +22,12 @@ export const validateBehaviorConfig = (
       warnings,
     }
   }
-  if (!config.strategies || typeof config.strategies !== 'object') {
-    errors.push({ code: 'CONFIG_INVALID', message: 'Config must include strategies', path: 'strategies' })
+  if (!config.strategies || typeof config.strategies !== 'object' || Array.isArray(config.strategies)) {
+    return {
+      ok: false,
+      errors: [{ code: 'CONFIG_INVALID', message: 'Config must include a strategies object', path: 'strategies' }],
+      warnings,
+    }
   }
 
   for (const [id, strategy] of Object.entries(config.strategies ?? {})) {
@@ -44,8 +48,8 @@ export const validateBehaviorConfig = (
     if (strategy.mode && !validModes.has(strategy.mode)) {
       errors.push({ code: 'MODE_INVALID', message: `Mode "${strategy.mode}" is invalid`, strategy: id })
     }
-    validateNextList(config, strategy.then, `${id}.then`, id, errors)
-    validateNextList(config, strategy.catch, `${id}.catch`, id, errors)
+    validateNextList(config, strategy.then, `${id}.then`, id, conditionsRegistry, errors)
+    validateNextList(config, strategy.catch, `${id}.catch`, id, conditionsRegistry, errors)
     validateCondition(strategy.when, id, `${id}.when`, conditionsRegistry, errors)
     validateRefs(strategy.props, id, `${id}.props`, errors)
   }

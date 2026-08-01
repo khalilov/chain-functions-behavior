@@ -11,15 +11,18 @@ export const executeThen = <TContext, TPatch>(
   environment: RunnerEnvironment<TContext, TPatch>
 ): Normalized<TContext, TPatch> | Promise<Normalized<TContext, TPatch>> => {
   const items = strategy.then ?? []
+
   if (items.length === 0) {
     return { status: 'success', patches: [], events: [] }
   }
   const mode = strategy.mode ?? 'sequence'
+
   if (mode === 'selector') {
     return executeSelector(items, depth, state, environment)
   }
   if (mode === 'parallel') {
     return executeParallel(items, depth, state, environment)
   }
+
   return executeSequence(items, depth, state, environment)
 }

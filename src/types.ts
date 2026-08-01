@@ -154,12 +154,15 @@ export type BehaviorWsSocket = {
   removeEventListener(type: 'open' | 'close' | 'error' | 'message', listener: EventListener): void
 }
 
-export type BehaviorWsRetryOptions = {
+export type BehaviorRetryOptions = {
   initialDelay?: number
   maxDelay?: number
   multiplier?: number
   jitter?: boolean
+  maxAttempts?: number
 }
+
+export type BehaviorWsRetryOptions = BehaviorRetryOptions
 
 export type BehaviorWsOptions<TEvents extends object = BehaviorEventMap> = {
   bus: BehaviorBus<TEvents>
@@ -171,6 +174,8 @@ export type BehaviorWsOptions<TEvents extends object = BehaviorEventMap> = {
 }
 
 export type BehaviorWsStatus = 'idle' | 'connecting' | 'connected' | 'retrying' | 'stopped'
+
+export type BehaviorFetchResponseType = 'json' | 'text' | 'blob' | 'arrayBuffer' | 'none'
 
 export type BehaviorWs = {
   start(): void
@@ -330,6 +335,8 @@ export type BehaviorRunnerOptions<TContext, TPatch> = {
   /** @deprecated Use `maxStepCount` instead. */
   maxSteps?: number
   maxDepth?: number
+  timeout?: number
+  /** @deprecated Use `timeout`. It will be removed in a future major release. */
   timeoutMs?: number
   trace?: boolean | BehaviorTraceSink
   onError?: BehaviorErrorReporter<TContext, TPatch>

@@ -24,15 +24,13 @@ export const normalizeActionResult = <TContext, TPatch>(
   }
   if (raw.type === 'fail') {
     const suppliedError =
-      raw.error &&
-      typeof raw.error === 'object' &&
-      'code' in raw.error &&
-      'message' in raw.error
+      raw.error && typeof raw.error === 'object' && 'code' in raw.error && 'message' in raw.error
         ? raw.error
         : undefined
     return {
       status: 'failed',
-      error: suppliedError as ReturnType<typeof behaviorError> | undefined ??
+      error:
+        (suppliedError as ReturnType<typeof behaviorError> | undefined) ??
         behaviorError('ACTION_THROWN', raw.reason ?? 'Action failed', { cause: raw.error }),
       patches: [],
       events: [],

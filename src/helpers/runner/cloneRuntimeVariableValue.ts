@@ -9,6 +9,7 @@ export const cloneRuntimeVariableValue = (value: unknown, seen: WeakMap<object, 
   }
 
   const existing = seen.get(value)
+
   if (existing) {
     return existing
   }
@@ -41,6 +42,7 @@ export const cloneRuntimeVariableValue = (value: unknown, seen: WeakMap<object, 
   }
 
   const prototype = Object.getPrototypeOf(value)
+
   if (prototype !== Object.prototype && prototype !== null) {
     throw unsupportedVariablesError()
   }
@@ -49,6 +51,7 @@ export const cloneRuntimeVariableValue = (value: unknown, seen: WeakMap<object, 
   }
 
   const clone = Object.create(prototype) as Record<string, unknown>
+
   seen.set(value, clone)
   for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
     if ('get' in descriptor || 'set' in descriptor) {

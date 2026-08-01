@@ -1,12 +1,6 @@
-import { type BehaviorConfig, type BehaviorNext, type BehaviorValidationIssue } from '~/types'
-
-const targetOf = (next: BehaviorNext): string => {
-  return typeof next === 'string' ? next : next.strategy
-}
-
-const itemsOf = (value: unknown): BehaviorNext[] => {
-  return Array.isArray(value) ? value : []
-}
+import { type BehaviorConfig, type BehaviorValidationIssue } from '~/types'
+import { getNextItems } from '~/helpers/validation/getNextItems'
+import { getNextTarget } from '~/helpers/validation/getNextTarget'
 
 export const detectNestedLoops = (config: BehaviorConfig, errors: BehaviorValidationIssue[]): void => {
   for (const [outerId, outer] of Object.entries(config.strategies)) {
@@ -40,16 +34,21 @@ export const detectNestedLoops = (config: BehaviorConfig, errors: BehaviorValida
       visited.add(id)
 
       for (const branch of ['then', 'catch'] as const) {
-        for (const next of itemsOf(strategy[branch])) {
-          const target = targetOf(next)
-          visit(target, [...path, `${id}.${branch}`])
+        for (const next of getNextItems(strategy[branch])) {
+          const target = getNextTarget(next)
+          if (target) {
+            visit(target, [...path, `${id}.${branch}`])
+          }
         }
       }
     }
 
     for (const branch of ['then', 'catch'] as const) {
-      for (const next of itemsOf(outer[branch])) {
-        visit(targetOf(next), [`${outerId}.${branch}`])
+      for (const next of getNextItems(outer[branch])) {
+        const target = getNextTarget(next)
+        if (target) {
+          visit(target, [`${outerId}.${branch}`])
+        }
       }
     }
   }

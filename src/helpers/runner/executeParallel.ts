@@ -1,5 +1,6 @@
 import { type BehaviorNext } from '~/types'
 import { executeNext } from '~/helpers/runner/executeNext'
+import { cloneParallelValue } from '~/helpers/runner/cloneParallelValue'
 import { executeSequence } from '~/helpers/runner/executeSequence'
 import { type Normalized, type RunState, type RunnerEnvironment } from '~/helpers/runner/runnerTypes'
 import { skippedResult } from '~/helpers/runner/skippedResult'
@@ -15,7 +16,13 @@ export const executeParallel = <TContext, TPatch>(
     return executeSequence(items, depth, state, environment)
   }
   const snapshots = items.map((item) => {
-    const child: RunState<TContext, TPatch> = { ...state, patches: [], events: [], data: { ...state.data } }
+    const child: RunState<TContext, TPatch> = {
+      ...state,
+      context: cloneParallelValue(state.context) as TContext,
+      patches: [],
+      events: [],
+      data: cloneParallelValue(state.data) as Record<string, unknown>,
+    }
     return Promise.resolve(executeNext(item, depth + 1, child, environment)).then((result) => ({ result, child }))
   })
   return Promise.all(snapshots).then((results) => {
@@ -28,7 +35,6 @@ export const executeParallel = <TContext, TPatch>(
       state.patches.push(...child.patches)
       state.events.push(...child.events)
       state.data = environment.mergeData(state.data, child.data)
-      state.steps = Math.max(state.steps, child.steps)
     }
     return results.some(({ result }) => result.status === 'success')
       ? successResult<TContext, TPatch>()

@@ -17,6 +17,39 @@ describe('validation', () => {
     )
   })
 
+  it('rejects malformed then and catch items', () => {
+    const runner = createBehaviorRunner()
+    const result = runner.validateConfig({
+      strategies: {
+        root: { fn: 'core.noop', then: [null as never], catch: [{} as never] },
+      },
+    })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.errors.filter((error) => error.code === 'STRATEGY_NOT_FOUND').length, 2)
+  })
+
+  it('validates props and conditions of then and catch items', () => {
+    const runner = createBehaviorRunner()
+    const result = runner.validateConfig({
+      strategies: {
+        root: {
+          fn: 'core.noop',
+          then: [{ strategy: 'next', props: { value: '$wrong.path' }, when: ['missingCondition'] }],
+          catch: [{ strategy: 'next', props: { value: '$also.wrong' }, when: ['missingCondition'] }],
+        },
+        next: { fn: 'core.noop' },
+      },
+    })
+
+    assert.deepEqual(result.errors.map((error) => error.code).sort(), [
+      'CONDITION_NOT_FOUND',
+      'CONDITION_NOT_FOUND',
+      'PATH_INVALID',
+      'PATH_INVALID',
+    ])
+  })
+
   it('accepts variable templates and expressions', () => {
     const runner = createBehaviorRunner()
     const result = runner.loadConfig({
@@ -42,6 +75,7 @@ describe('validation', () => {
 
   it('rejects malformed variable templates', () => {
     const malformed = ['${AUTH_SERVICE_BASE', '${1BAD}', '${FOO:bar}']
+
     for (const template of malformed) {
       const runner = createBehaviorRunner()
       const result = runner.loadConfig({
@@ -51,7 +85,10 @@ describe('validation', () => {
       })
 
       assert.equal(result.ok, false)
-      assert.equal(result.errors.some(({ code }) => code === 'TEMPLATE_INVALID'), true)
+      assert.equal(
+        result.errors.some(({ code }) => code === 'TEMPLATE_INVALID'),
+        true
+      )
     }
   })
 
@@ -68,6 +105,7 @@ describe('validation', () => {
       '',
       '\\${A} ${B} \\{{ x }} {{ y }}',
     ]
+
     for (const template of escaped) {
       const runner = createBehaviorRunner()
       const result = runner.loadConfig({

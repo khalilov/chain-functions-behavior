@@ -1,10 +1,10 @@
-import { type BehaviorConditionExpression, type BehaviorValidationIssue } from '~/types'
+import { type BehaviorValidationIssue } from '~/types'
 import { type RegistryReader } from '~/helpers/validation/registryReader'
 import { controlConditions } from '~/helpers/validation/validationConstants'
 import { validateRefs } from '~/helpers/validation/validateRefs'
 
 export const validateCondition = (
-  expression: BehaviorConditionExpression | undefined,
+  expression: unknown,
   strategy: string,
   path: string,
   conditionsRegistry: RegistryReader,
@@ -19,19 +19,11 @@ export const validateCondition = (
   }
   const [operator, ...args] = expression
   if (operator === 'and' || operator === 'or') {
-    args.forEach((arg, index) =>
-      validateCondition(
-        arg as BehaviorConditionExpression,
-        strategy,
-        `${path}.${index + 1}`,
-        conditionsRegistry,
-        errors
-      )
-    )
+    args.forEach((arg, index) => validateCondition(arg, strategy, `${path}.${index + 1}`, conditionsRegistry, errors))
     return
   }
   if (operator === 'not') {
-    validateCondition(args[0] as BehaviorConditionExpression, strategy, `${path}.1`, conditionsRegistry, errors)
+    validateCondition(args[0], strategy, `${path}.1`, conditionsRegistry, errors)
     return
   }
   if (!conditionsRegistry.has(operator) && !controlConditions.has(operator)) {

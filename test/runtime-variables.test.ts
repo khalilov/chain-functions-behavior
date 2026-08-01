@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'vitest'
-import { createBehaviorRunner, type BehaviorError, type BehaviorProps } from '~/index'
+import { createBehaviorRunner, type BehaviorProps } from '~/index'
 
 type Context = Record<string, unknown>
 
@@ -11,6 +11,7 @@ const runProps = async (
 ) => {
   let received: BehaviorProps = {}
   const runner = createBehaviorRunner<Context>(options)
+
   runner.registerAction('capture', ({ props: actionProps }) => {
     received = actionProps
   })
@@ -24,6 +25,7 @@ describe('runtime variables and expressions', () => {
     const object = { price: 12, enabled: true }
     const array = [object]
     const variables = { SERVICES: { auth: { baseUrl: 'http://auth' } }, CONTRACTS: array, FLAG: false }
+
     const { received } = await runProps(
       {
         url: '$variables.SERVICES.auth.baseUrl',
@@ -118,6 +120,7 @@ describe('runtime variables and expressions', () => {
 
   it('evaluates every arithmetic and numeric built-in', async () => {
     const expression = (operator: string, ...args: unknown[]) => ({ $expression: [operator, ...args] })
+
     const { received } = await runProps({
       add: expression('add', 1, 2, 3),
       subtract: expression('subtract', 7, 2),
@@ -154,11 +157,7 @@ describe('runtime variables and expressions', () => {
       {
         selected: { $expression: ['at', '$variables.CONTRACTS', '$input.index'] },
         price: {
-          $expression: [
-            'property',
-            { $expression: ['at', '$variables.CONTRACTS', '$input.index'] },
-            'price',
-          ],
+          $expression: ['property', { $expression: ['at', '$variables.CONTRACTS', '$input.index'] }, 'price'],
         },
         nested: {
           total: { $expression: ['multiply', { $expression: ['get', '$variables', 'CONTRACTS[1].price'] }, 2] },
@@ -290,7 +289,10 @@ describe('runtime variables and expressions', () => {
       strategies: { root: { fn: 'mutate', props: { settings: '$variables.SETTINGS' } } },
     })
     const results = await Promise.all([runner.run('root', {}), runner.run('root', {})])
-    assert.deepEqual(results.map(({ status }) => status), ['failed', 'failed'])
+    assert.deepEqual(
+      results.map(({ status }) => status),
+      ['failed', 'failed']
+    )
     assert.deepEqual(seen, [])
     assert.equal(supplied.SETTINGS.count, 0)
   })

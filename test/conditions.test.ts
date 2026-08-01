@@ -24,10 +24,12 @@ const createScope = (context: Ctx = {}, data: Record<string, unknown> = {}) => {
     data,
     patches: [],
     events: [],
-    steps: 0,
+    stepCounter: { current: 0 },
     startedAt: Date.now(),
     sync: false,
     signal: new AbortController().signal,
+    abort: () => undefined,
+    closed: false,
     reportedErrors: [],
     variables: {},
     expressions: {},
@@ -120,11 +122,7 @@ describe('built-in conditions', () => {
   })
 
   it('uses a valid error path when strategy is omitted', () => {
-    const result = evaluateCondition(
-      ['eq', '$variables.MISSING', 1],
-      createConditionsRegistry<Ctx>(),
-      createScope()
-    )
+    const result = evaluateCondition(['eq', '$variables.MISSING', 1], createConditionsRegistry<Ctx>(), createScope())
 
     assert.equal(result.ok, false)
     if (!result.ok) {

@@ -17,6 +17,9 @@ import { withErrorStage } from '~/helpers/errors/withErrorStage'
 import { ResolutionError } from '~/helpers/path/ResolutionError'
 import { redactVariableProps } from '~/helpers/trace/redactVariableProps'
 import { toRuntimeResult } from '~/helpers/runner/toRuntimeResult'
+import { isTimedOut } from '~/helpers/runner/isTimedOut'
+import { raceTimeout } from '~/helpers/runner/raceTimeout'
+import { timeoutResult } from '~/helpers/runner/timeoutResult'
 import { type Normalized, type RunState, type RunnerEnvironment } from '~/helpers/runner/runnerTypes'
 
 export const executeStrategy = <TContext, TPatch>(
@@ -37,14 +40,14 @@ export const executeStrategy = <TContext, TPatch>(
   }
   const maxDepth = environment.options.maxDepth ?? defaultMaxDepth
   if (maxDepth !== -1 && depth > maxDepth) {
-    return failLimit('MAX_DEPTH', `Max depth exceeded at strategy "${id}"`, id)
+    return failLimit<TContext, TPatch>('MAX_DEPTH', `Max depth exceeded at strategy "${id}"`, id)
   }
   const maxStepCount = environment.options.maxStepCount ?? environment.options.maxSteps ?? defaultMaxStepCount
-  if (maxStepCount !== -1 && state.steps >= maxStepCount) {
-    return failLimit('MAX_STEPS', `Max steps exceeded at strategy "${id}"`, id)
+  if (maxStepCount !== -1 && state.stepCounter.current >= maxStepCount) {
+    return failLimit<TContext, TPatch>('MAX_STEPS', `Max steps exceeded at strategy "${id}"`, id)
   }
-  if (environment.options.timeoutMs && Date.now() - state.startedAt > environment.options.timeoutMs) {
-    return failLimit('TIMEOUT', `Behavior run timed out after ${environment.options.timeoutMs}ms`, id)
+  if (isTimedOut(state.startedAt, environment.options.timeout)) {
+    return timeoutResult<TContext, TPatch>(environment.options.timeout, id)
   }
 
   const strategy = config.strategies[id]
@@ -66,7 +69,14 @@ export const executeStrategy = <TContext, TPatch>(
       error: behaviorError('ACTION_NOT_FOUND', `Action "${strategy.fn}" is not registered`, {
         strategy: id,
         fn: strategy.fn,
-        stage: { phase: 'action', strategy: id, fn: strategy.fn, mode: strategy.mode, depth, step: state.steps + 1 },
+        stage: {
+          phase: 'action',
+          strategy: id,
+          fn: strategy.fn,
+          mode: strategy.mode,
+          depth,
+          step: state.stepCounter.current + 1,
+        },
       }),
       patches: [],
       events: [],
@@ -92,7 +102,7 @@ export const executeStrategy = <TContext, TPatch>(
         fn: strategy.fn,
         mode: strategy.mode,
         depth,
-        step: state.steps + 1,
+        step: state.stepCounter.current + 1,
       }),
       strategy,
       depth,
@@ -108,7 +118,7 @@ export const executeStrategy = <TContext, TPatch>(
       : async () => undefined,
   })
   const dataBefore = cloneData(state.data)
-  const traceStep = state.steps + 1
+  const traceStep = state.stepCounter.current + 1
   const startedAt = Date.now()
 
   const condition = evaluateCondition(strategy.when, environment.conditionsRegistry, {
@@ -137,12 +147,16 @@ export const executeStrategy = <TContext, TPatch>(
     return { status: 'skipped', reason: 'when condition did not match', patches: [], events: [] }
   }
 
-  state.steps += 1
+  state.stepCounter.current += 1
   const invoke = (): BehaviorActionResult<TContext, TPatch> | Promise<BehaviorActionResult<TContext, TPatch>> =>
     action({ context: state.context, props, input: state.input, signal: state.signal, runtime })
 
-  const actionThrown = (cause: unknown) =>
-    handleFailure(
+  const actionThrown = (cause: unknown): Normalized<TContext, TPatch> | Promise<Normalized<TContext, TPatch>> => {
+    if (isTimedOut(state.startedAt, environment.options.timeout)) {
+      return timeoutResult<TContext, TPatch>(environment.options.timeout, id)
+    }
+
+    return handleFailure(
       cause instanceof ResolutionError
         ? withErrorStage(cause.behaviorError, {
             phase: 'action',
@@ -163,6 +177,7 @@ export const executeStrategy = <TContext, TPatch>(
       state,
       environment
     )
+  }
 
   try {
     const raw = invoke()
@@ -176,12 +191,51 @@ export const executeStrategy = <TContext, TPatch>(
           })
         )
       }
-      return raw
-        .then((value) =>
-          afterAction(value, id, strategy, depth, state, traceProps, dataBefore, traceStep, startedAt, environment)
-        )
-        .catch(actionThrown)
+      let timedOut = false
+      const complete = raw
+        .then((value) => {
+          if (timedOut || isTimedOut(state.startedAt, environment.options.timeout)) {
+            return timeoutResult<TContext, TPatch>(environment.options.timeout, id)
+          }
+
+          return afterAction(
+            value,
+            id,
+            strategy,
+            depth,
+            state,
+            traceProps,
+            dataBefore,
+            traceStep,
+            startedAt,
+            environment
+          )
+        })
+        .catch((cause) => {
+          if (timedOut || isTimedOut(state.startedAt, environment.options.timeout)) {
+            return timeoutResult<TContext, TPatch>(environment.options.timeout, id)
+          }
+
+          return actionThrown(cause)
+        })
+      const timeout = environment.options.timeout
+
+      if (timeout !== undefined && timeout > 0) {
+        return raceTimeout(complete, timeout, state.startedAt, () => {
+          timedOut = true
+          state.closed = true
+          state.abort()
+
+          return timeoutResult<TContext, TPatch>(timeout, id)
+        })
+      }
+
+      return complete
     }
+    if (isTimedOut(state.startedAt, environment.options.timeout)) {
+      return timeoutResult<TContext, TPatch>(environment.options.timeout, id)
+    }
+
     return afterAction(raw, id, strategy, depth, state, traceProps, dataBefore, traceStep, startedAt, environment)
   } catch (cause) {
     if (cause instanceof BehaviorSyncAsyncError) {
