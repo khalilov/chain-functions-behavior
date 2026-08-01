@@ -56,7 +56,7 @@ ul {
   flex: 1;
 }
 
-.todo-completed span {
+[data-todo-message] {
   color: #65727a;
-  text-decoration: line-through;
+  min-height: 1.5em;
 }

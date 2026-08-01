@@ -4,148 +4,112 @@ import {
   createPubSubBehavior,
   type BehaviorDomForm,
 } from 'chain-functions-behavior'
-import { pick } from 'objwalk'
-
-type Todo = {
-  id: string
-  title: string
-  completed: boolean
-}
-
-type TodoEvents = {
-  'todo.created': Todo
-  'todo.toggled': Pick<Todo, 'id' | 'completed'>
-  'todo.removed': Pick<Todo, 'id'>
-}
+import { type Todo, type TodoEvents } from './shared'
 
 type TodoState = {
   todos: Map<string, Todo>
+  message: string
 }
 
-const state: TodoState = { todos: new Map() }
+const state: TodoState = { todos: new Map(), message: '' }
 const bus = createPubSubBehavior<TodoEvents>()
 
-const getFormValue = (form: BehaviorDomForm | undefined, name: string): string => {
-  const value = form?.[name]
+const getTitle = (form: BehaviorDomForm | undefined): string => {
+  const value = form?.title
 
-  return typeof value === 'string' ? value.trim() : ''
+  return typeof value === 'string' ? value : ''
 }
 
 const render = (): void => {
   const list = document.querySelector<HTMLUListElement>('[data-todo-list]')
   const status = document.querySelector<HTMLElement>('[data-todo-status]')
+  const message = document.querySelector<HTMLElement>('[data-todo-message]')
 
   if (list) {
     const items = [...state.todos.values()].map((todo) => {
       const item = document.createElement('li')
-      const toggle = document.createElement('input')
-      const title = document.createElement('span')
-      const remove = document.createElement('button')
 
-      item.className = todo.completed ? 'todo todo-completed' : 'todo'
-      toggle.type = 'checkbox'
-      toggle.checked = todo.completed
-      toggle.dataset.todoToggle = todo.id
-      title.textContent = todo.title
-      remove.type = 'button'
-      remove.dataset.todoRemove = todo.id
-      remove.textContent = 'Remove'
-
-      item.append(toggle, title, remove)
+      item.textContent = todo.title
       return item
     })
 
     list.replaceChildren(...items)
   }
   if (status) {
-    const completed = [...state.todos.values()].filter((todo) => todo.completed).length
-
-    status.textContent = `${state.todos.size} tasks, ${completed} completed`
+    status.textContent = `${state.todos.size} saved tasks`
+  }
+  if (message) {
+    message.textContent = state.message
   }
 }
 
-const behavior = createChainBehavior<TodoState, unknown, TodoEvents>(
+const clientBehavior = createChainBehavior<TodoState, unknown, TodoEvents>(
   {
     actions: {
       'todo.requestCreate': ({ input }) => {
         const form = input.form as BehaviorDomForm | undefined
-        const title = getFormValue(form, 'title')
+        const title = getTitle(form)
 
-        if (title) {
-          bus.emit('todo.created', { id: crypto.randomUUID(), title, completed: false }, { origin: 'ui' })
-        }
+        state.message = 'Sending request to the server…'
+        render()
+        bus.emit('todo.create.request', { requestId: crypto.randomUUID(), title }, { origin: 'client' })
       },
-      'todo.requestToggle': ({ input }) => {
-        const id = pick(input, 'dataset.todoToggle')
-        const todo = typeof id === 'string' ? state.todos.get(id) : undefined
-
-        if (todo) {
-          bus.emit('todo.toggled', { id: todo.id, completed: !todo.completed }, { origin: 'ui' })
-        }
-      },
-      'todo.requestRemove': ({ input }) => {
-        const id = pick(input, 'dataset.todoRemove')
-
-        if (typeof id === 'string') {
-          bus.emit('todo.removed', { id }, { origin: 'ui' })
-        }
-      },
-      'todo.addSynthetic': () => {
-        bus.emit(
-          'todo.created',
-          { id: crypto.randomUUID(), title: 'Synthetic event from an API callback', completed: false },
-          { origin: 'api' }
-        )
-      },
-      'todo.applyCreated': ({ input }) => {
+      'todo.applyAccepted': ({ input }) => {
         const todo = input as Todo
 
         state.todos.set(todo.id, todo)
+        state.message = `Saved “${todo.title}” on the server.`
         render()
       },
-      'todo.applyToggled': ({ input }) => {
-        const update = input as TodoEvents['todo.toggled']
-        const todo = state.todos.get(update.id)
+      'todo.applyRejected': ({ input }) => {
+        const rejection = input as TodoEvents['todo.create.rejected']
 
-        if (todo) {
-          state.todos.set(update.id, { ...todo, completed: update.completed })
-          render()
-        }
+        state.message = rejection.message
+        render()
       },
-      'todo.applyRemoved': ({ input }) => {
-        const update = input as TodoEvents['todo.removed']
+      'todo.applyLoaded': ({ runtime }) => {
+        const response = runtime.data.get('todos') as { body?: { todos?: Todo[] } }
 
-        state.todos.delete(update.id)
+        for (const todo of response.body?.todos ?? []) {
+          state.todos.set(todo.id, todo)
+        }
+        state.message = ''
+        render()
+      },
+      'todo.showLoadError': () => {
+        state.message = 'Could not load saved tasks. Please refresh the page.'
         render()
       },
     },
     events: {
       '[dom] [data-todo-form]:submit': { entrypoint: 'todo.requestCreate' },
-      '[dom] [data-todo-toggle]:click': { entrypoint: 'todo.requestToggle' },
-      '[dom] [data-todo-remove]:click': { entrypoint: 'todo.requestRemove' },
-      '[dom] [data-todo-synthetic]:click': { entrypoint: 'todo.addSynthetic' },
-      '[bus] todo.created': { entrypoint: 'todo.applyCreated' },
-      '[bus] todo.toggled': { entrypoint: 'todo.applyToggled' },
-      '[bus] todo.removed': { entrypoint: 'todo.applyRemoved' },
+      '[bus] todo.create.accepted': { entrypoint: 'todo.applyAccepted' },
+      '[bus] todo.create.rejected': { entrypoint: 'todo.applyRejected' },
     },
     config: {
       entrypoints: {
         'todo.requestCreate': 'todo.requestCreate',
-        'todo.requestToggle': 'todo.requestToggle',
-        'todo.requestRemove': 'todo.requestRemove',
-        'todo.addSynthetic': 'todo.addSynthetic',
-        'todo.applyCreated': 'todo.applyCreated',
-        'todo.applyToggled': 'todo.applyToggled',
-        'todo.applyRemoved': 'todo.applyRemoved',
+        'todo.applyAccepted': 'todo.applyAccepted',
+        'todo.applyRejected': 'todo.applyRejected',
+        'todo.load': 'todo.load',
       },
       strategies: {
         'todo.requestCreate': { fn: 'todo.requestCreate' },
-        'todo.requestToggle': { fn: 'todo.requestToggle' },
-        'todo.requestRemove': { fn: 'todo.requestRemove' },
-        'todo.addSynthetic': { fn: 'todo.addSynthetic' },
-        'todo.applyCreated': { fn: 'todo.applyCreated' },
-        'todo.applyToggled': { fn: 'todo.applyToggled' },
-        'todo.applyRemoved': { fn: 'todo.applyRemoved' },
+        'todo.applyAccepted': { fn: 'todo.applyAccepted' },
+        'todo.applyRejected': { fn: 'todo.applyRejected' },
+        'todo.load': {
+          fn: 'core.fetch',
+          props: {
+            url: '/api/todos',
+            response: 'json',
+            dataPath: 'todos',
+            retry: { maxAttempts: 2, initialDelay: 250, maxDelay: 1_000 },
+          },
+          then: ['todo.applyLoaded'],
+          catch: ['todo.showLoadError'],
+        },
+        'todo.applyLoaded': { fn: 'todo.applyLoaded' },
+        'todo.showLoadError': { fn: 'todo.showLoadError' },
       },
     },
   },
@@ -156,19 +120,12 @@ const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 const ws = createBehaviorWs({
   bus,
   createSocket: () => new WebSocket(`${protocol}//${window.location.host}/ws`),
-  inboundTopics: ['todo.created', 'todo.toggled', 'todo.removed'],
-  outboundTopics: ['todo.created', 'todo.toggled', 'todo.removed'],
+  inboundTopics: ['todo.create.accepted', 'todo.create.rejected'],
+  outboundTopics: ['todo.create.request'],
   origin: 'ws',
   retry: { initialDelay: 250, maxDelay: 5_000 },
 })
 
-behavior.start()
+clientBehavior.start()
 ws.start()
-
-queueMicrotask(() => {
-  bus.emit(
-    'todo.created',
-    { id: crypto.randomUUID(), title: 'Synthetic task created after startup', completed: false },
-    { origin: 'api' }
-  )
-})
+void clientBehavior.runner.run('todo.load', state, {})

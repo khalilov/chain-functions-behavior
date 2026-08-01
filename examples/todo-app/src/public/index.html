@@ -10,7 +10,7 @@
     <main>
       <header>
         <p>CFB Todo App</p>
-        <span data-todo-status>0 tasks, 0 completed</span>
+        <span data-todo-status>0 saved tasks</span>
       </header>
 
       <form data-todo-form>
@@ -18,7 +18,7 @@
         <button type="submit">Add task</button>
       </form>
 
-      <button type="button" data-todo-synthetic>Add synthetic task</button>
+      <p data-todo-message aria-live="polite"></p>
       <ul data-todo-list></ul>
     </main>
     <script type="module" src="/app.js"></script>

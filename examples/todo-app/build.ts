@@ -1,10 +1,13 @@
 import Bun, { type BuildOutput } from 'bun'
 import { FileMoverPlugin } from 'bun-file-mover-plugin'
 
+const sourceDirectory = `${import.meta.dir}/src`
+const outputDirectory = `${import.meta.dir}/dist`
+
 export const build = async (): Promise<BuildOutput> => {
   const result = await Bun.build({
-    entrypoints: ['./src/app.ts'],
-    outdir: './build',
+    entrypoints: [`${sourceDirectory}/app.ts`],
+    outdir: outputDirectory,
     target: 'browser',
     format: 'esm',
     splitting: true,
@@ -13,8 +16,8 @@ export const build = async (): Promise<BuildOutput> => {
     sourcemap: 'external',
     plugins: [
       FileMoverPlugin({
-        from: './src/public',
-        to: './build',
+        from: `${sourceDirectory}/public`,
+        to: outputDirectory,
       }),
     ],
   })

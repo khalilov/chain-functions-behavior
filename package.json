@@ -38,7 +38,7 @@
     "examples/*.ts",
     "examples/todo-app/README.md",
     "examples/todo-app/build.ts",
-    "examples/todo-app/bun.lockb",
+    "examples/todo-app/bun.lock",
     "examples/todo-app/package.json",
     "examples/todo-app/server.ts",
     "examples/todo-app/src",
@@ -65,7 +65,6 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "nanoid": "^5.1.16",
     "objwalk": "^1.1.0"
   }
 }
