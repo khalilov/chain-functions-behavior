@@ -3,7 +3,7 @@
 Когда один и тот же сценарий запускается из формы, HTTP API, фоновой задачи или WebSocket-сообщения, его логика быстро расползается по обработчикам и сервисам. CFB помогает собрать её в одном явном месте — в цепочке обычных TypeScript-функций.
 
 [![Размер бандла](https://img.shields.io/bundlephobia/minzip/chain-functions-behavior?label=%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%80%20%D0%B1%D0%B0%D0%BD%D0%B4%D0%BB%D0%B0)](https://bundlephobia.com/package/chain-functions-behavior)
-[![Безопасность Socket](https://socket.dev/api/badge/npm/package/chain-functions-behavior/1.5.0)](https://socket.dev/npm/package/chain-functions-behavior/overview/1.5.0)
+[![Безопасность Socket](https://socket.dev/api/badge/npm/package/chain-functions-behavior/1.6.1)](https://socket.dev/npm/package/chain-functions-behavior/overview/1.6.1)
 
 CFB берёт на себя порядок выполнения, конкурентность, отмену и диагностику. Состояние предметной области и побочные эффекты по-прежнему остаются в вашем приложении.
 
