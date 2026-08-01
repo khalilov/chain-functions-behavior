@@ -18,6 +18,8 @@ import {
 } from '~/types'
 import { createBehaviorRunner } from '~/runner'
 import { PubSubBehavior } from '~/pubSub'
+import { isBehaviorInput } from '~/helpers/chain/isBehaviorInput'
+import { parseDomBinding } from '~/helpers/chain/parseDomBinding'
 
 const busBindingPrefix = '[bus] '
 const domBindingPrefix = '[dom] '
@@ -92,7 +94,8 @@ export const createChainBehavior = <TContext, TPatch = unknown, TEvents extends 
     target: SchedulableBinding,
     input: BehaviorInput,
     key?: string,
-    lane?: RunLane
+    lane?: RunLane,
+    laneKey?: string
   ): void => {
     const controller = new AbortController()
     const run: ActiveRun = { controller, id: `run-${++runCount}` }
@@ -140,9 +143,9 @@ export const createChainBehavior = <TContext, TPatch = unknown, TEvents extends 
 
           lane.active = undefined
           if (nextInput) {
-            startRun(binding, target, nextInput, key, lane)
+            startRun(binding, target, nextInput, key, lane, laneKey)
           } else {
-            lanes.delete(key as string)
+            lanes.delete(laneKey as string)
           }
         }
       })
@@ -161,10 +164,10 @@ export const createChainBehavior = <TContext, TPatch = unknown, TEvents extends 
 
       lanes.set(laneKey, lane)
       if (!lane.active) {
-        startRun(binding, target, input, key, lane)
+        startRun(binding, target, input, key, lane, laneKey)
       } else if (mode === 'latest') {
         lane.active.controller.abort()
-        startRun(binding, target, input, key, lane)
+        startRun(binding, target, input, key, lane, laneKey)
       } else if (mode === 'drop') {
         emitDiagnostic('cfb.run.dropped', { binding, entrypoint: target.entrypoint, key, reason: 'run-active' })
       } else {
@@ -198,19 +201,18 @@ export const createChainBehavior = <TContext, TPatch = unknown, TEvents extends 
   const subscribeBusBinding = (binding: string, target: BehaviorBusBinding): void => {
     const event = binding.slice(busBindingPrefix.length) as BehaviorEventName<TEvents>
     const unsubscribe = bus.on(event, (busEvent) => {
-      scheduleRun(binding, target, busEvent.parsed as BehaviorInput)
+      if (isBehaviorInput(busEvent.parsed)) {
+        scheduleRun(binding, target, busEvent.parsed)
+      } else {
+        emitDiagnostic('cfb.run.dropped', {
+          binding,
+          entrypoint: target.entrypoint,
+          reason: 'input-not-object',
+        })
+      }
     })
 
     unsubscribers.add(unsubscribe)
-  }
-
-  const parseDomBinding = (binding: string): { selector: string; eventType: string } | undefined => {
-    const source = binding.slice(domBindingPrefix.length)
-    const separator = source.lastIndexOf(':')
-    if (separator <= 0 || separator === source.length - 1) {
-      return undefined
-    }
-    return { selector: source.slice(0, separator), eventType: source.slice(separator + 1) }
   }
 
   const collectForm = (element: Element): BehaviorDomForm | undefined => {
@@ -223,6 +225,7 @@ export const createChainBehavior = <TContext, TPatch = unknown, TEvents extends 
     const values: BehaviorDomForm = {}
     for (const [name, value] of new FormData(form)) {
       const current = values[name]
+
       values[name] = current === undefined ? value : Array.isArray(current) ? [...current, value] : [current, value]
     }
     return values
@@ -248,7 +251,7 @@ export const createChainBehavior = <TContext, TPatch = unknown, TEvents extends 
   }
 
   const subscribeDomBinding = (binding: string, target: BehaviorDomBinding): boolean => {
-    const parsed = parseDomBinding(binding)
+    const parsed = parseDomBinding(binding, domBindingPrefix)
     const root = options.root ?? (typeof document === 'undefined' ? undefined : document)
     let active = false
 

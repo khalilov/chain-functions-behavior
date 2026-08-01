@@ -43,6 +43,43 @@ describe('chain behavior', () => {
     assert.deepEqual(received, [{ context: { requestId: 'request-1' }, input: { email: 'ada@example.com' } }])
   })
 
+  it('drops external bus envelopes with a non-object payload', () => {
+    const bus = createPubSubBehavior<Events>()
+    const diagnostics: string[] = []
+    let calls = 0
+    const diagnosticBus = bus as BehaviorBus<BehaviorEventMap>
+    diagnosticBus.on('cfb.run.dropped', ({ parsed }) =>
+      diagnostics.push(String((parsed as { reason?: unknown }).reason))
+    )
+    const behavior = createChainBehavior<Context, unknown, Events>(
+      {
+        actions: {
+          save: () => {
+            calls += 1
+          },
+        },
+        events: { '[bus] form.submit': { entrypoint: 'form.submit' } },
+        config: {
+          entrypoints: { 'form.submit': 'save' },
+          strategies: { save: { fn: 'save' } },
+        },
+      },
+      { bus, context: { requestId: 'request-1' } }
+    )
+
+    behavior.start()
+    diagnosticBus.dispatch({
+      id: 'external-1',
+      topic: 'form.submit',
+      occurredAt: Date.now(),
+      parsed: 'invalid',
+      serialized: '"invalid"',
+    })
+
+    assert.equal(calls, 0)
+    assert.deepEqual(diagnostics, ['input-not-object'])
+  })
+
   it('uses fresh context for each bus event and removes bindings when stopped', () => {
     const bus = createPubSubBehavior<Events>()
     const requestIds: string[] = []
