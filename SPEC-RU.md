@@ -32,7 +32,8 @@ flowchart LR
 ```ts
 import {
   createBehaviorRunner,
-  defineBehaviorConfig,
+  createActionsRegistry,
+  createConditionsRegistry,
   createMemoryTraceSink,
   defineErrorReporter,
   createPubSubBehavior,
@@ -157,6 +158,7 @@ runner.registerCondition('eq', customEq)
 - `core.noop`
 - `core.stop`
 - `core.fail`
+- `core.fetch`
 - `core.loop`
 - `core.sequence`
 - `core.selector`
@@ -167,12 +169,14 @@ runner.registerCondition('eq', customEq)
 - `core.patch`
 - `core.delay`
 
-`core.loop` выполняет ветку `then` каждые `props.duration` миллисекунд до отмены запуска или завершения `props.max` итераций. Максимум по умолчанию — `1000`; значение `max: -1` отключает ограничение количества итераций. Ноль, значения меньше `-1`, `NaN` и бесконечность заменяются значением по умолчанию. Если `props.immediate` равен `true`, первая итерация выполняется сразу, учитывается в `max` и не ждёт первого интервала. Пересекающиеся итерации пропускаются. При ошибке итерации выполняется `catch`; после успешного `catch` цикл продолжается.
+`core.loop` выполняет ветку `then` каждые `props.duration` миллисекунд до отмены запуска или завершения `props.max` итераций. Максимум по умолчанию — `999`: один из стандартных `maxStepCount: 1000` шагов расходуется на сам loop action. Значение `max: -1` отключает ограничение количества итераций, но не safety limits runner-а. Ноль, значения меньше `-1`, `NaN` и бесконечность заменяются значением по умолчанию. Если `props.immediate` равен `true`, первая итерация выполняется сразу, учитывается в `max` и не ждёт первого интервала. Пересекающиеся итерации пропускаются. При ошибке итерации выполняется `catch`; после успешного `catch` цикл продолжается.
 Вложенные стратегии `core.loop` запрещены, включая транзитивные ссылки через `then` или `catch`. Соседние циклы в отдельных ветках разрешены.
 
 Экшены могут выполнять собственные настроенные ветки через `runtime.executeThen()` и `runtime.executeCatch()`. `executeThen()` учитывает `mode` стратегии, поэтому управляющие экшены вроде `core.loop` могут компоноваться с выполнением `sequence`, `selector` и `parallel`, не обращаясь к внутренностям runner.
 
 `core.set` записывает вложенное значение контекста через `runtime.set`. `core.setData` записывает временные данные цепочки через `runtime.data.set`.
+
+`core.fetch` использует нативный `fetch` с signal текущего запуска. Свойство `response` выбирает `json`, `text`, `blob`, `arrayBuffer` или `none`; успешный ответ нормализуется в `{ status, ok, headers, body }` и может быть записан по `dataPath` или `contextPath`. `acceptStatuses` переопределяет стандартную проверку успеха через `Response.ok`. `retry` принимает `initialDelay`, `maxDelay`, `multiplier`, `jitter` и `maxAttempts`; `retryStatuses` переопределяет стандартный набор повторяемых статусов. По умолчанию выполняются две повторные попытки для сетевых ошибок и статусов `408`, `425`, `429` и `5xx`. Ретраи предназначены для body, который можно безопасно повторно отправить.
 
 ## Встроенные условия
 
@@ -188,7 +192,7 @@ runner.registerCondition('eq', customEq)
 ## Пример конфигурации
 
 ```ts
-export const config = defineBehaviorConfig({
+export const config = {
   version: 1,
   entrypoints: {
     'worker.tick': 'worker.tick',
@@ -208,7 +212,7 @@ export const config = defineBehaviorConfig({
       fn: 'core.noop',
     },
   },
-})
+}
 ```
 
 ## Режимы выполнения
@@ -217,7 +221,7 @@ export const config = defineBehaviorConfig({
 
 `selector` выполняет цели `then` до первого успешного или остановленного шага. `skip` означает «попробовать следующий вариант».
 
-`parallel` запускает цели `then` независимо. Полученные патчи и события возвращаются вызывающей стороне; исполнитель их не применяет.
+`parallel` запускает цели `then` независимо. Простые объекты и массивы контекста и runtime data копируются для каждой ветки; инфраструктурные значения вроде функций, DOM-узлов и экземпляров классов остаются ссылками. Safety limits, включая `maxStepCount`, остаются общими для всего запуска. Полученные патчи и события возвращаются вызывающей стороне; исполнитель их не применяет.
 
 ## Вспомогательные средства среды выполнения
 
@@ -229,11 +233,17 @@ type BehaviorRuntime = {
     get(path: string): unknown
     set(path: string, value: unknown): void
   }
+  variables?: {
+    get(path: string): unknown
+  }
   /** @deprecated Используйте runtime.data.get. */
   getData(path: string): unknown
   /** @deprecated Используйте runtime.data.set. */
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
+  signal: AbortSignal
+  executeThen(): Promise<BehaviorRuntimeBranchResult>
+  executeCatch(): Promise<BehaviorRuntimeBranchResult | undefined>
   emit(event: BehaviorEvent): void
   patch(patch: unknown): void
   stop(reason?: string): BehaviorActionStop<unknown>
@@ -245,7 +255,7 @@ type BehaviorRuntime = {
 
 `runtime.getData` и `runtime.setData` сохранены как устаревшие алиасы для совместимости и при вызове выводят предупреждение в консоль.
 
-`runtime.resolve` разрешает ссылки `$context.*`, `$data.*` и `$input.*`.
+`runtime.variables.get` читает неизменяемые runtime-переменные. `runtime.resolve` разрешает ссылки `$context.*`, `$data.*`, `$input.*` и неизменяемые значения `$variables.*`. Он также рекурсивно вычисляет объекты `$expression` и `$template`, используя операторы выражений, зарегистрированные в опциях runner.
 
 Чтение и запись путей во время выполнения реализованы непосредственно через `objwalk`.
 
@@ -318,7 +328,7 @@ type BehaviorBusEvent<TPayload> = {
 }
 ```
 
-`emit` создаёт конверт и сериализует полезную нагрузку один раз до запуска подписчиков. `on` возвращает функцию отписки. `off(event, handler)` удаляет один обработчик, а `off(event)` очищает канал. Ошибка одного подписчика не блокирует остальных; `createPubSubBehavior({ onError })` получает ошибку и исходное событие. При ошибке сериализации шина передаёт `{ error }` в качестве `parsed` и тело ошибки в качестве `serialized`, после чего вызывает `onError` с исходной причиной.
+`emit` создаёт конверт и сериализует полезную нагрузку один раз до запуска подписчиков. Идентификаторы событий — непрозрачные 12-символьные буквенно-цифровые runtime-ID для корреляции и подавления эха. Они не криптографически стойкие: не используйте их для access token, подписей, публичных ссылок или иных security-sensitive задач. `on` возвращает функцию отписки. `off(event, handler)` удаляет один обработчик, а `off(event)` очищает канал. Ошибка одного подписчика не блокирует остальных; `createPubSubBehavior({ onError })` получает ошибку и исходное событие. При ошибке сериализации шина передаёт `{ error }` в качестве `parsed` и тело ошибки в качестве `serialized`, после чего вызывает `onError` с исходной причиной.
 
 ## Цепочка поведения
 
@@ -414,13 +424,13 @@ const ws = createBehaviorWs({
   inboundTopics: ['order.created'],
   outboundTopics: ['cfb.run.finished'],
   origin: 'worker',
-  retry: { initialDelay: 500, maxDelay: 10_000, multiplier: 2, jitter: true },
+  retry: { initialDelay: 500, maxDelay: 10_000, multiplier: 2, jitter: true, maxAttempts: 5 },
 })
 
 ws.start()
 ```
 
-Входящие темы проходят через явный список разрешений. Мост разбирает JSON-конверт и вызывает `bus.dispatch(event)`, сохраняя `id`, `occurredAt`, `origin`, `parsed` и `serialized`. Исходящие темы отправляют `event.serialized` без повторной сериализации. `start`, `stop`, `reconnect` и `status` управляют жизненным циклом транспорта. Диагностические события: `cfb.ws.connecting`, `cfb.ws.connected`, `cfb.ws.disconnected`, `cfb.ws.retrying` и `cfb.ws.message.rejected`.
+Входящие темы проходят через явный список разрешений. Мост разбирает JSON-конверт и вызывает `bus.dispatch(event)`, сохраняя `id`, `occurredAt`, `origin`, `parsed` и `serialized`; принятые входящие идентификаторы запоминаются и не отправляются обратно наружу. Исходящие темы отправляют полный JSON-конверт события, поэтому удалённый мост может передать его в шину, не создавая новый идентификатор. `maxAttempts` ограничивает reconnect; без него повторы идут бесконечно. `start`, `stop`, `reconnect` и `status` управляют жизненным циклом транспорта. Диагностические события: `cfb.ws.connecting`, `cfb.ws.connected`, `cfb.ws.disconnected`, `cfb.ws.retrying` и `cfb.ws.message.rejected`.
 
 ## Ограничения безопасности
 
@@ -428,7 +438,7 @@ ws.start()
 
 - `maxStepCount`: `1000`
 - `maxDepth`: `32`
-- `timeoutMs`: `0`
+- `timeout`: `0`
 - `trace`: `false`
 
 Нарушения ограничений возвращаются как неуспешные результаты с кодами `MAX_STEPS`, `MAX_DEPTH` и `TIMEOUT`.

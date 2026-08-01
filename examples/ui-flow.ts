@@ -1,10 +1,10 @@
-import { createBehaviorRunner, defineBehaviorConfig } from '~/index'
+import { createBehaviorRunner } from '~/index'
 
 interface UiContext {
   modal: 'buyOre' | null
 }
 
-export const uiBehavior = defineBehaviorConfig({
+export const uiBehavior = {
   version: 1,
   entrypoints: { 'settings.save.click': 'settings.save.click' },
   strategies: {
@@ -18,7 +18,7 @@ export const uiBehavior = defineBehaviorConfig({
     'ui.showMessage': { fn: 'core.emit', props: { type: 'ui.message', payload: { text: 'Settings saved' } } },
     'ui.showError': { fn: 'core.emit', props: { type: 'ui.error', payload: { text: 'Could not save settings' } } },
   },
-})
+}
 
 export const createUiRunner = () => {
   const runner = createBehaviorRunner<UiContext>()

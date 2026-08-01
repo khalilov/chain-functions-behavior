@@ -1,4 +1,4 @@
-import { createBehaviorRunner, defineBehaviorConfig } from '~/index'
+import { createBehaviorRunner } from '~/index'
 
 interface JobWorkerContext {
   worker: { id: string; state: 'idle' | 'busy'; queueSize: number }
@@ -6,7 +6,7 @@ interface JobWorkerContext {
   now: number
 }
 
-export const jobWorkerBehavior = defineBehaviorConfig({
+export const jobWorkerBehavior = {
   version: 1,
   entrypoints: { 'worker.tick': 'worker.tick' },
   strategies: {
@@ -24,7 +24,7 @@ export const jobWorkerBehavior = defineBehaviorConfig({
     'jobs.reserve': { fn: 'jobs.reserve' },
     'jobs.execute': { fn: 'jobs.execute' },
   },
-})
+}
 
 export const createJobWorkerRunner = () => {
   const runner = createBehaviorRunner<JobWorkerContext>()

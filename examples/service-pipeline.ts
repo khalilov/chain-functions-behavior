@@ -1,11 +1,11 @@
-import { createBehaviorRunner, defineBehaviorConfig } from '~/index'
+import { createBehaviorRunner } from '~/index'
 
 interface ServicePipelineContext {
   service: { id: string; status: 'ready' | 'paused'; pendingTasks: number }
   now: number
 }
 
-export const servicePipelineBehavior = defineBehaviorConfig({
+export const servicePipelineBehavior = {
   version: 1,
   entrypoints: { 'service.tick': 'service.tick' },
   strategies: {
@@ -20,7 +20,7 @@ export const servicePipelineBehavior = defineBehaviorConfig({
       props: { type: 'service.status', payload: { serviceId: '$context.service.id' } },
     },
   },
-})
+}
 
 export const createServicePipelineRunner = () => {
   const runner = createBehaviorRunner<ServicePipelineContext>()

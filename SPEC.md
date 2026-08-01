@@ -32,7 +32,8 @@ flowchart LR
 ```ts
 import {
   createBehaviorRunner,
-  defineBehaviorConfig,
+  createActionsRegistry,
+  createConditionsRegistry,
   createMemoryTraceSink,
   defineErrorReporter,
   createPubSubBehavior,
@@ -157,6 +158,7 @@ Configuration validation accesses registries through the minimal `has(name)` con
 - `core.noop`
 - `core.stop`
 - `core.fail`
+- `core.fetch`
 - `core.loop`
 - `core.sequence`
 - `core.selector`
@@ -167,12 +169,14 @@ Configuration validation accesses registries through the minimal `has(name)` con
 - `core.patch`
 - `core.delay`
 
-`core.loop` executes its `then` branch every `props.duration` milliseconds until the run is aborted or `props.max` iterations complete. The default maximum is `1000`; `max: -1` disables the iteration limit. Zero, values below `-1`, `NaN`, and infinity fall back to the default. When `props.immediate` is `true`, the first iteration executes immediately, counts toward `max`, and does not wait for the first interval. Overlapping iterations are skipped. A failed iteration executes `catch`; the loop continues when `catch` succeeds.
+`core.loop` executes its `then` branch every `props.duration` milliseconds until the run is aborted or `props.max` iterations complete. The default maximum is `999`, leaving one of the default `maxStepCount: 1000` steps for the loop action itself; `max: -1` disables the iteration limit, but not runner safety limits. Zero, values below `-1`, `NaN`, and infinity fall back to the default. When `props.immediate` is `true`, the first iteration executes immediately, counts toward `max`, and does not wait for the first interval. Overlapping iterations are skipped. A failed iteration executes `catch`; the loop continues when `catch` succeeds.
 Nested `core.loop` strategies are invalid, including transitive references through `then` or `catch`. Sibling loops in separate branches are allowed.
 
 Actions can execute their own configured branches through `runtime.executeThen()` and `runtime.executeCatch()`. `executeThen()` honors the strategy's `mode`, so control actions such as `core.loop` can compose with `sequence`, `selector`, and `parallel` execution without accessing runner internals.
 
 `core.set` writes a nested context value through `runtime.set`. `core.setData` writes temporary chain data through `runtime.data.set`.
+
+`core.fetch` uses native `fetch` with the run signal. Its `response` prop selects `json`, `text`, `blob`, `arrayBuffer`, or `none`; successful responses are normalized as `{ status, ok, headers, body }` and can be written to `dataPath` or `contextPath`. `acceptStatuses` overrides the default `Response.ok` success condition. `retry` accepts `initialDelay`, `maxDelay`, `multiplier`, `jitter`, and `maxAttempts`; `retryStatuses` overrides the default retryable statuses. The default performs two retries for network failures and statuses `408`, `425`, `429`, and `5xx`. Retries are intended for replayable request bodies.
 
 ## Built-In Conditions
 
@@ -188,7 +192,7 @@ Actions can execute their own configured branches through `runtime.executeThen()
 ## Config Example
 
 ```ts
-export const config = defineBehaviorConfig({
+export const config = {
   version: 1,
   entrypoints: {
     'worker.tick': 'worker.tick',
@@ -208,7 +212,7 @@ export const config = defineBehaviorConfig({
       fn: 'core.noop',
     },
   },
-})
+}
 ```
 
 ## Execution Modes
@@ -217,7 +221,7 @@ export const config = defineBehaviorConfig({
 
 `selector` executes `then` targets until the first successful or stopped step. `skip` means “try the next option.”
 
-`parallel` runs `then` targets independently. Resulting patches and events are returned to the caller; the runner does not apply them.
+`parallel` runs `then` targets independently. Plain objects and arrays in runtime context and data are cloned for each branch; infrastructure values such as functions, DOM nodes, and class instances remain references. Safety limits, including `maxStepCount`, remain shared by the whole run. Resulting patches and events are returned to the caller; the runner does not apply them.
 
 ## Runtime Helpers
 
@@ -229,11 +233,17 @@ type BehaviorRuntime = {
     get(path: string): unknown
     set(path: string, value: unknown): void
   }
+  variables?: {
+    get(path: string): unknown
+  }
   /** @deprecated Use runtime.data.get. */
   getData(path: string): unknown
   /** @deprecated Use runtime.data.set. */
   setData(path: string, value: unknown): void
   resolve(value: unknown): unknown
+  signal: AbortSignal
+  executeThen(): Promise<BehaviorRuntimeBranchResult>
+  executeCatch(): Promise<BehaviorRuntimeBranchResult | undefined>
   emit(event: BehaviorEvent): void
   patch(patch: unknown): void
   stop(reason?: string): BehaviorActionStop<unknown>
@@ -245,7 +255,7 @@ type BehaviorRuntime = {
 
 `runtime.getData` and `runtime.setData` are deprecated compatibility aliases and emit a console warning when called.
 
-`runtime.resolve` resolves `$context.*`, `$data.*`, and `$input.*`.
+`runtime.variables.get` reads immutable runtime variables. `runtime.resolve` resolves `$context.*`, `$data.*`, `$input.*`, and immutable `$variables.*` values. It also evaluates `$expression` and `$template` objects recursively, using the expression operators registered in runner options.
 
 Runtime path get/set is implemented directly through `objwalk`.
 
@@ -318,7 +328,7 @@ type BehaviorBusEvent<TPayload> = {
 }
 ```
 
-`emit` creates an envelope and serializes the payload once before subscribers run. `on` returns an unsubscribe function. `off(event, handler)` removes one handler, while `off(event)` clears the channel. An error in one subscriber does not block the others; `createPubSubBehavior({ onError })` receives the error and original event. On serialization failure, the bus delivers `{ error }` as `parsed` and the error body as `serialized`, then calls `onError` with the original cause.
+`emit` creates an envelope and serializes the payload once before subscribers run. Event identifiers are opaque 12-character alphanumeric runtime IDs for correlation and echo suppression. They are not cryptographically secure and must not be used for access tokens, signatures, public links, or any security-sensitive purpose. `on` returns an unsubscribe function. `off(event, handler)` removes one handler, while `off(event)` clears the channel. An error in one subscriber does not block the others; `createPubSubBehavior({ onError })` receives the error and original event. On serialization failure, the bus delivers `{ error }` as `parsed` and the error body as `serialized`, then calls `onError` with the original cause.
 
 ## Chain Behavior
 
@@ -414,13 +424,13 @@ const ws = createBehaviorWs({
   inboundTopics: ['order.created'],
   outboundTopics: ['cfb.run.finished'],
   origin: 'worker',
-  retry: { initialDelay: 500, maxDelay: 10_000, multiplier: 2, jitter: true },
+  retry: { initialDelay: 500, maxDelay: 10_000, multiplier: 2, jitter: true, maxAttempts: 5 },
 })
 
 ws.start()
 ```
 
-Inbound topics pass an explicit allowlist. The bridge parses a JSON envelope and calls `bus.dispatch(event)`, preserving `id`, `occurredAt`, `origin`, `parsed`, and `serialized`. Outbound topics send `event.serialized` without serializing again. `start`, `stop`, `reconnect`, and `status` manage the transport lifecycle. Diagnostics: `cfb.ws.connecting`, `cfb.ws.connected`, `cfb.ws.disconnected`, `cfb.ws.retrying`, and `cfb.ws.message.rejected`.
+Inbound topics pass an explicit allowlist. The bridge parses a JSON envelope and calls `bus.dispatch(event)`, preserving `id`, `occurredAt`, `origin`, `parsed`, and `serialized`; it remembers accepted inbound IDs and does not send them back outbound. Outbound topics send the complete event envelope as JSON, so the remote bridge can dispatch it without recreating its identity. `maxAttempts` limits reconnects; omitting it retries indefinitely. `start`, `stop`, `reconnect`, and `status` manage the transport lifecycle. Diagnostics: `cfb.ws.connecting`, `cfb.ws.connected`, `cfb.ws.disconnected`, `cfb.ws.retrying`, and `cfb.ws.message.rejected`.
 
 ## Safety Limits
 
@@ -428,7 +438,7 @@ Defaults:
 
 - `maxStepCount`: `1000`
 - `maxDepth`: `32`
-- `timeoutMs`: `0`
+- `timeout`: `0`
 - `trace`: `false`
 
 Limit failures are returned as failed results with `MAX_STEPS`, `MAX_DEPTH`, and `TIMEOUT` codes.

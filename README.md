@@ -1,43 +1,18 @@
-# CFB - Chain Functions Behavior
+# CFB — Chain Functions Behavior
 
-CFB is a TypeScript framework for turning application scenarios into executable behavior chains. It connects typed events to reusable synchronous and asynchronous functions through declarative strategies, conditions, concurrency rules, and error branches.
+When the same business flow can start from a form, an API route, a job, or a WebSocket message, its control flow tends to spread across the application. CFB gives that flow one explicit home: a chain of ordinary TypeScript functions.
 
-The same behavior model can run in a browser, API service, worker, or WebSocket-connected process. Application code owns the domain state and side effects; CFB owns orchestration.
+[![bundle size](https://img.shields.io/bundlephobia/minzip/chain-functions-behavior?label=bundle%20size)](https://bundlephobia.com/package/chain-functions-behavior)
+[![Socket security](https://socket.dev/api/badge/npm/package/chain-functions-behavior/1.5.0)](https://socket.dev/npm/package/chain-functions-behavior/overview/1.5.0)
 
-## Manifest
+CFB takes care of orchestration, concurrency, cancellation, and diagnostics. Your application keeps ownership of its domain state and side effects.
 
-A user story, enterprise architecture diagram, or mind map should translate naturally into a chain of functions. CFB keeps that chain explicit so product behavior does not disappear into UI handlers, transport callbacks, and service-specific control flow.
+## Why use it?
 
-The framework separates **what should happen** from **where and how each function runs**:
-
-- events select an entrypoint;
-- strategies describe execution order and conditions;
-- actions implement domain behavior;
-- bindings connect browser and server event sources;
-- the runner returns data, patches, events, trace, and a normalized result.
-
-## Runtime Flow
-
-```mermaid
-flowchart LR
-  DOM["DOM event"] --> CFB["Chain behavior binding"]
-  SYNTHETIC["Synthetic event: API, timer, worker"] --> BUS["PubSubBehavior"]
-  TRANSPORT["WebSocket transport"] --> WS["WebSocket bridge"]
-  WS --> BUS
-  BUS --> WS
-  WS --> TRANSPORT
-  BUS --> CFB
-
-  CFB --> CONCURRENCY["Concurrency lane"]
-  CONCURRENCY --> RUNNER["Behavior runner"]
-  RUNNER --> CONDITIONS["Conditions"]
-  CONDITIONS --> ACTIONS["Actions"]
-  ACTIONS --> RESULT["Run result"]
-
-  RUNNER --> DIAGNOSTICS["cfb.* diagnostics"]
-  DIAGNOSTICS --> BUS
-  RESULT --> DIAGNOSTICS
-```
+- **Keep the business flow visible.** Put a scenario in one chain instead of hiding it among UI handlers, transport callbacks, and service code.
+- **Test the scenario without the surrounding application.** Pass in context and events; actions and conditions are just TypeScript functions.
+- **Make async behavior deliberate.** Choose `parallel`, `latest`, `queue`, or `drop` for each event source. Actions receive an `AbortSignal` when cancellation matters.
+- **Use the same flow in more than one place.** The chain can start from a typed bus, DOM event, API callback, timer, worker, or WebSocket message.
 
 ## Installation
 
@@ -45,18 +20,9 @@ flowchart LR
 npm install chain-functions-behavior
 ```
 
-## Chain Behavior
+## Quick start
 
-`createChainBehavior` is the application-facing runtime. It combines:
-
-- a behavior config with strategies and entrypoints;
-- application actions and conditions;
-- a context value or context provider;
-- bus and DOM event bindings;
-- concurrency and lifecycle options;
-- a behavior runner created for this definition.
-
-`start()` validates the config and installs available bindings. `stop()` removes those bindings. DOM bindings become inactive in runtimes without a DOM, while bus bindings continue to work on both client and server.
+This example handles an order submission from a typed event bus. The `latest` mode cancels a previous submission for the same order when a newer event arrives.
 
 ```ts
 import { createChainBehavior, createPubSubBehavior } from 'chain-functions-behavior'
@@ -69,11 +35,10 @@ type Events = {
   'order.submit': { orderId: string }
 }
 
+const bus = createPubSubBehavior<Events>()
 const context: Context = {
   orders: new Map([['order-1', { id: 'order-1', status: 'draft' }]]),
 }
-
-const bus = createPubSubBehavior<Events>()
 
 const behavior = createChainBehavior<Context, unknown, Events>(
   {
@@ -98,98 +63,60 @@ const behavior = createChainBehavior<Context, unknown, Events>(
       },
     },
     config: {
-      entrypoints: {
-        'order.submit': 'order.submit',
-      },
-      strategies: {
-        'order.submit': {
-          fn: 'order.submit',
-        },
-      },
+      entrypoints: { 'order.submit': 'order.submit' },
+      strategies: { 'order.submit': { fn: 'order.submit' } },
     },
   },
-  {
-    bus,
-    context,
-    onRunnerError: ({ error, entrypoint, runId }) => {
-      console.error('Behavior failed', { error, entrypoint, runId })
-    },
-  }
+  { bus, context }
 )
 
-const started = behavior.start()
-
+behavior.start()
 bus.emit('order.submit', { orderId: 'order-1' }, { origin: 'api' })
-
-behavior.stop()
 ```
 
-`start()` returns active and inactive bindings together with the config validation result. Calling it again replaces bindings installed by the previous start.
+## Fetch data with cancellation and retries
 
-## Event Sources
-
-Chain behavior accepts multiple event sources without coupling actions to a transport:
-
-- `[bus] <topic>` consumes typed `PubSubBehavior` events;
-- `[dom] <selector>:<event>` delegates browser events from `document` or a configured root;
-- application code produces synthetic events with `bus.emit()` from API callbacks, timers, workers, or tests;
-- `createBehaviorWs` forwards selected bus envelopes through a WebSocket-like transport and dispatches allowed inbound envelopes back to the bus.
-
-DOM input is normalized to `{ type, value?, dataset, form? }`. For submit events, `preventDefault` defaults to `true`. On the server, DOM bindings are reported as inactive instead of failing behavior startup.
-
-## Runtime Variables And Expressions
-
-Host applications can pass execution-environment values through the runner options. CFB does not read `.env` or `process.env` itself.
+`core.fetch` uses the run `AbortSignal`, retries transient failures, and keeps the response available to the next strategy without coupling the flow to a specific HTTP client.
 
 ```ts
-const runner = createBehaviorRunner({
-  variables: {
-    API_BASE_URL: 'https://api.example.com',
-    HTTP_TIMEOUT: 5000,
+const config = {
+  strategies: {
+    'catalog.load': {
+      fn: 'core.fetch',
+      props: {
+        url: '/api/catalog',
+        response: 'json',
+        dataPath: 'catalogResponse',
+        retry: { maxAttempts: 2, initialDelay: 250, maxDelay: 1_000 },
+      },
+      then: ['catalog.apply'],
+    },
+    'catalog.apply': { fn: 'catalog.apply' },
   },
-})
+}
+
+const applyCatalog = ({ runtime }) => {
+  const { body } = runtime.data.get('catalogResponse')
+
+  // Update your application state with body.
+}
 ```
 
-Configurations can read complete values with `$variables.HTTP_TIMEOUT`, interpolate strings with `$template`, and calculate values with `$expression`. Variables are snapshotted once when the runner is created and reused by its runs.
+## What CFB provides
 
-Inside `$template`, prefix a delimiter with `\` to emit it literally: `\${NAME}` produces `${NAME}` and `\{{ data.path }}` produces `{{ data.path }}`. Backslash runs use parity: an odd count escapes the delimiter, while an even count emits half the backslashes and performs interpolation. `\\` produces one backslash, and unknown escapes such as `\x` remain unchanged.
+- Declarative strategies, conditions, error branches, and entrypoints.
+- Typed PubSub bindings and delegated DOM bindings.
+- `parallel`, `latest`, `queue`, and `drop` concurrency modes with per-entity lanes.
+- A WebSocket bridge for forwarding selected bus events.
+- `core.fetch` with response parsing, cancellation, and retry backoff.
+- Normalized results, execution trace, validation, and lifecycle diagnostics such as `cfb.run.started` and `cfb.run.failed`.
+- Runtime variables for configuration values, templates, and expressions.
 
-Runtime variables support defined primitive values, arrays, and plain objects only. `undefined`, mutable built-ins such as `Date`, `Map`, typed arrays, class instances, functions, symbols, and accessor properties are rejected with a `TypeError` during runner creation.
+## Where to go next
 
-The snapshot is deeply frozen. Objects and arrays obtained through `$variables`, `runtime.variables.get()`, templates, or expression arguments cannot change host-owned or runner-owned state. Mutation attempts throw a `TypeError` in strict mode, including ES modules; ordinary assignments may fail silently in non-strict JavaScript.
-
-## Concurrency And Lifecycle
-
-Each binding supports `parallel`, `latest`, `queue`, and `drop` modes. A binding can derive a lane key from its payload, allowing unrelated entities to execute independently.
-
-Actions receive an `AbortSignal`. `latest` aborts the previous run in the same lane, and `behavior.stop({ force: true })` aborts all active runs. Cancellation is cooperative: actions must pass the signal to fetches, timers, or other asynchronous work.
-
-CFB publishes lifecycle diagnostics through the configured bus, including `cfb.run.started`, `cfb.run.finished`, `cfb.run.failed`, `cfb.run.cancelled`, `cfb.run.dropped`, and `cfb.queue.overflow`.
-
-## Runnable Example
-
-[`examples/todo-app`](examples/todo-app) is a Bun microapp with DOM bindings, synthetic bus events, and live WebSocket synchronization between browser tabs. Its state, actions, configuration, bindings, and transport setup are intentionally kept together in one `src/app.ts` file.
-
-```bash
-npm run build
-cd examples/todo-app
-bun install
-bun run dev
-```
-
-Open `http://localhost:4173` in two browser tabs to observe event envelopes propagating through the WebSocket bridge.
-
-## Specification
-
-[SPEC.md](SPEC.md) defines the complete technical contract, including:
-
-- runner and registry APIs;
-- built-in actions and conditions;
-- execution modes and condition expressions;
-- runtime helpers, validation, trace, and safety limits;
-- PubSub envelopes and error behavior;
-- chain behavior bindings and concurrency;
-- DOM normalization and WebSocket transport behavior.
+- Explore the runnable [client/server Todo app example](examples/todo-app), which sends a form request to a server CFB runtime for validation and in-memory storage.
+- Read the complete [technical specification](SPEC.md) for the runner API, built-in actions and conditions, expressions, validation, safety limits, transport behavior, and lifecycle semantics.
+- Russian documentation: [README-RU.md](README-RU.md) and [SPEC-RU.md](SPEC-RU.md).
 
 ## Development
 
